@@ -8,8 +8,9 @@ tags:
 # Eficiencia de tokens
 
 Dos mecanismos distintos, uno gratis a nivel de SDK y otro de comportamiento
-vía Skill, para que las ocho fases gasten menos cuota sin bajar la calidad del
-producto generado. Pedido explícitamente por el usuario tras la
+vía Skill, para que todos los roles gasten menos cuota sin bajar la calidad
+del producto generado (incluido [[Diseño]], añadido después). Pedido
+explícitamente por el usuario tras la
 [[Red social de libros (prueba)|prueba de la red social de libros]] (10
 intentos, mucha cuota gastada) — no es una optimización especulativa, es una
 respuesta directa a ese consumo real.
@@ -77,7 +78,7 @@ workspace del proyecto generado) — una ruta relativa dependería de un detalle
 operativo frágil.
 
 La Skill no se activa sola: `preamble()` en `roles.ts` añade un bloque
-`EFICIENCIA` explícito a las ocho fases pidiendo que se invoque al empezar.
+`EFICIENCIA` explícito a todos los roles pidiendo que se invoque al empezar.
 Skills enumeradas para una sesión aparecen en el listado que ve el modelo,
 pero cargarlas de verdad requiere que el propio modelo decida invocarlas — sin
 esa instrucción explícita, confiar en que lo haga por iniciativa propia habría

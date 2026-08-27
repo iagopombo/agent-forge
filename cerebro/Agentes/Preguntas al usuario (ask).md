@@ -11,6 +11,12 @@ agente de [[Producto]] — el único con `canAsk: true` en `roles.ts` — una v�
 para preguntar al usuario cuando una duda de alcance cambia de verdad el
 producto.
 
+> [!info] [[Diseño]] usa el mismo mecanismo de fondo, con su propia tool
+> `server/src/design.ts` (`buildDesignServer`, tool `mostrar_diseno`) llama al
+> mismo `Run.askUser` que esta tool, con una captura de pantalla adjunta
+> (`image`) y pensado para iterar en bucle en vez de una sola pregunta. Ver
+> [[Diseño (agente y paralelismo)]].
+
 ## La tool `preguntar_al_usuario`
 
 Esquema (Zod):
@@ -25,7 +31,7 @@ Esquema (Zod):
 El agente propone exactamente 3 opciones concretas y excluyentes; la
 **interfaz** añade una cuarta libre para que el usuario escriba lo que quiera
 (no es parte del esquema MCP — es una decisión de la UI). El handler llama a
-`ask(pregunta, opciones)`, que es `Run.askUser` — ver
+un callback que cierra sobre `Run.askUser(phase, pregunta, opciones)` — ver
 [[Orquestador#Preguntas del usuario]] — y bloquea hasta que resuelve.
 
 ## Cuándo preguntar (criterio del prompt de producto)

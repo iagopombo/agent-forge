@@ -10,7 +10,9 @@ tags:
 `server/src/orchestrator.ts` — la clase `Run` es el corazón de Agent Forge:
 gestiona el [[Pipeline de 8 fases|pipeline]], el consumo de mensajes del SDK,
 y el mecanismo de pausa/reanudación por cuota. Ver también
-[[Cuota, pausas y reanudación]] para la historia real de cómo se afinó esto.
+[[Cuota, pausas y reanudación]] para la historia real de cómo se afinó esto, y
+[[Diseño (agente y paralelismo)]] para lo que cambió aquí específicamente al
+meter una segunda fase corriendo de verdad al mismo tiempo.
 
 ## Ciclo de vida de una fase (`runPhaseOnce`)
 
@@ -28,6 +30,9 @@ con, entre otras opciones:
 - `thinking: { type: 'adaptive', display: 'summarized' }`
 - `mcpServers: { forge: buildAskServer(...) }` solo si `role.canAsk` (solo
   [[Producto]]) — ver [[Preguntas al usuario (ask)]]
+- `mcpServers: { forge: buildDesignServer(...) }` solo si `role.canDesign`
+  (solo [[Diseño]]) — misma idea, para enseñar capturas del mockup e iterar.
+  Ver [[Diseño (agente y paralelismo)]]
 - `agents: { 'architect-advisor': ... }` solo si `role.canConsult` (backend,
   frontend, integración, correcciones) — el arquitecto como subagente
   consultable vía la tool `Task`, de solo lectura (`tools: ['Read', 'Glob', 'Grep']`)
@@ -47,8 +52,19 @@ evento de [[Eventos y SSE]]: `stream_event` con `text_delta`/`thinking_delta` �
 
 Al empezar una fase se toma una foto de los PIDs hijos del servidor
 (`childProcesses(process.pid)`); en paralelo, `trackChild` espera hasta 10 s a
-que aparezca un PID nuevo que además parezca un agente (`AGENT_PROCESS.test`).
-Ese PID es lo que `stop()` mata de verdad con `killTree`.
+que aparezca un PID nuevo que además parezca un agente (`AGENT_PROCESS.test`)
+y no esté ya reclamado por otra fase (`!this.children.has(p.pid)`). Ese PID es
+lo que `stop()` mata de verdad con `killTree`.
+
+`this.children` es un `Set<number>`, no un único PID — desde
+[[Diseño (agente y paralelismo)|que diseño corre en paralelo]] con
+arquitecto/backend puede haber más de un `claude.exe` vivo a la vez. No hace
+falta saber qué PID es de qué fase (`stop()` los mata todos igual); el filtro
+`!this.children.has(...)` existe para que dos fases arrancando casi a la vez
+no reclamen por error el mismo PID recién aparecido. La generación de
+staleness (`gen`/`phaseSeq` en el código viejo) también pasó a ser por fase
+(`phaseGen: Map<PhaseId, number>`) — con un contador global, el reintento de
+una fase invalidaría por error el rastreo de otra corriendo en paralelo.
 
 > [!info] Por qué importa
 > Abortar el `AbortController` del SDK solo corta el diálogo con el modelo.
@@ -65,8 +81,8 @@ ejecución no se ha parado, llama a `waitForQuota` y, si la espera termina bien,
 `docs/` y continúa donde lo dejó.
 
 `waitForQuota`:
-- Pone `status = 'paused'` y emite el evento `paused` con la razón y (si se
-  pudo parsear) la hora exacta de reanudación
+- Emite el evento `paused` con la fase, la razón y (si se pudo parsear) la
+  hora exacta de reanudación
 - Duerme en tramos de máximo 15 s (para poder cortar rápido si se detiene la
   ejecución) hasta la hora de reset + 60 s de margen, o 5 min si no se conoce
   la hora
@@ -75,20 +91,37 @@ ejecución no se ha parado, llama a `waitForQuota` y, si la espera termina bien,
 - Devuelve `false` (sin reanudar) si la ejecución se detuvo mientras esperaba
 
 Una fase que terminó en pausa **no cuenta como completada**: `runPhaseOnce` no
-registra `phase.end` ni añade la fase a `this.phases` mientras
-`this.pauseSignal` siga armado — solo se registra cuando el reintento sale bien
-o cuando se agota definitivamente.
+registra `phase.end` ni añade la fase a `this.phases` mientras la señal de
+pausa siga armada — solo se registra cuando el reintento sale bien o cuando
+se agota definitivamente.
+
+> [!info] `status = 'paused'` ya no lo pone `waitForQuota` directamente
+> Antes sí, porque solo había una fase a la vez. Ahora `runPhase` marca la
+> fase como `'paused'` en `activePhases` (un `Map<PhaseId, 'running' |
+> 'paused'>`) y llama a `updateStatus()`, que solo baja el `status` global a
+> `paused` cuando **todas** las fases activas lo están — si diseño se queda
+> sin cuota pero arquitecto sigue trabajando, el run entero sigue `running`
+> de verdad. Detalle en [[Diseño (agente y paralelismo)]].
 
 ## Fatal vs. pausa (`classifyFailure`)
 
 Un fallo de fase (excepción o `message.subtype !== 'success'`) se clasifica en
 `classifyFailure(detail)`:
 
-- **Cuota** (`QUOTA_ERRORS`) → arma `pauseSignal` con la razón y, si se pudo,
-  la hora de reset (`parseResetAt`). No detiene la ejecución.
+- **Cuota** (`QUOTA_ERRORS`) → **devuelve** la señal de pausa (razón y, si se
+  pudo, la hora de reset vía `parseResetAt`). No detiene la ejecución.
 - **Cualquier otra cosa** (reconocida por `HARD_ERRORS` o no) → marca
-  `this.fatal` también. `halted` = `stopped || fatal !== null` corta la
-  ejecución ahí, sin pasar a la fase siguiente.
+  `this.fatal` y devuelve `null`. `halted` = `stopped || fatal !== null` corta
+  la ejecución ahí, sin pasar a la fase siguiente.
+
+> [!info] Devuelve, no muta — desde que hay dos fases activas a la vez
+> Antes `classifyFailure` mutaba `this.pauseSignal` directamente (un campo
+> compartido). Con diseño y arquitecto/backend corriendo en paralelo, un
+> campo compartido para "la fase en pausa" es ambiguo — si las dos fallan
+> casi a la vez, una podría pisar la señal de la otra. Ahora la señal viaja
+> como valor local por `runPhaseOnce` → `runPhase`, cada fase con la suya.
+> `this.fatal` sí se queda compartido a propósito: un error fatal para de
+> verdad toda la ejecución, aunque otra fase siga corriendo en ese instante.
 
 > [!warning] No siempre fue así
 > Hasta que [[Postúlate (prueba)]] destapó el bug, solo `HARD_ERRORS` marcaba
@@ -119,21 +152,35 @@ no como "en espera", que es lo que pasaba antes de este mecanismo (ver
   caliente de una fase en marcha.
 - Ese resultado (`priorPhases: Partial<Record<PhaseId, PhaseOutcome>>`) se
   pasa a `Run` en el constructor. Justo después del evento `run.start` en
-  `start()`, `seedPriorPhases()` recorre las fases anteriores a `startFrom` en
-  orden y, por cada una con outcome guardado, emite `phase.start` +
-  `phase.end` sintéticos **inmediatamente** (no ejecuta nada, solo reproduce
-  el resultado ya conocido) y suma su coste a `this.costUsd`.
-- La fase que es literalmente `startFrom` (y las posteriores) nunca se siembra
-  — esas sí se ejecutan de verdad.
+  `start()`, `seedPriorPhases()` recorre **todo lo que hay en `prior`** y, por
+  cada fase con outcome guardado que no esté invalidada (ver abajo), emite
+  `phase.start` + `phase.end` sintéticos **inmediatamente** (no ejecuta nada,
+  solo reproduce el resultado ya conocido) y suma su coste a `this.costUsd`.
+- Se invalidan (no se siembran) la fase que es literalmente `startFrom` y
+  todo lo que dependa de ella, vía `DOWNSTREAM_OF` — no "todo lo anterior por
+  posición", porque con diseño en paralelo no hay una posición lineal única
+  que lo represente. `pipeline()` decide fase a fase si hace falta correrla
+  de verdad mirando `this.phases.has(phase)`, no comparando índices.
+
+> [!bug] `DOWNSTREAM_OF` existe por un fallo real de invalidación en cascada
+> Una primera versión solo excluía la fase exacta de `startFrom`. Se rompía
+> así: retomar en `frontend` con un `integration` de éxito de un intento
+> **más antiguo** en `prior` se habría sembrado como hecho — pero esa
+> integración validó un frontend que ya no existe. `DOWNSTREAM_OF[phase]` da
+> el conjunto de fases que dependen de `phase` (frontend invalida también
+> integration; architect invalida backend+frontend+integration; etc.) y se
+> excluyen todas. Encontrado por razonamiento antes de que hiciera falta un
+> fallo real para notarlo — detalle completo en
+> [[Diseño (agente y paralelismo)]].
 
 > [!info] Verificado en producción, no solo en test
 > Al reanudar [[Red social de libros (prueba)|la red social de libros]] desde
 > `package`, el `.jsonl` del nuevo run mostró las seis fases previas
 > (`product` → `review`) con `phase.end ok=true` en el segundo `0` de la
 > ejecución, antes de que `package` empezara a correr de verdad. Regresión en
-> `probe-seed.mts` (aislado, sobre `Run`) y `probe-seed-part2.mts` (proceso
-> aparte con `FORGE_RUNS` apuntando a un directorio temporal, porque `CONFIG`
-> se congela al primer `import`).
+> `probe-seed.mts`/`probe-seed-part2.mts` (el mecanismo original, con una
+> sola rama) y `probe-seed2.mts` (la reescritura no lineal, incluyendo el
+> caso de invalidación en cascada de arriba).
 
 ## Fin de la ejecución
 
@@ -145,9 +192,18 @@ coste total y la duración.
 
 ## Preguntas del usuario
 
-`askUser(question, options)` es la única forma en que una fase puede detenerse
-a esperar input humano fuera del ciclo de cuota: crea un id aleatorio, lo
-guarda en `pendingAsks`, emite el evento `ask` y devuelve una promesa que solo
-se resuelve desde `answer(id, text)` (llamado por `POST /api/runs/:id/answer`)
-o se rechaza si la ejecución se detiene con la pregunta abierta
-(`rejectAsks`). Ver [[Preguntas al usuario (ask)]].
+`askUser(phase, question, options, image?)` es la única forma en que una fase
+puede detenerse a esperar input humano fuera del ciclo de cuota: crea un id
+aleatorio, lo guarda en `pendingAsks`, emite el evento `ask` (con `image` si
+lo trae — [[Diseño|diseño]] enseñando una captura) y devuelve una promesa que
+solo se resuelve desde `answer(id, text)` (llamado por
+`POST /api/runs/:id/answer`) o se rechaza si la ejecución se detiene con la
+pregunta abierta (`rejectAsks`). Ver [[Preguntas al usuario (ask)]] y
+[[Diseño (agente y paralelismo)]].
+
+> [!info] `phase` viene siempre explícito de quien llama
+> Antes se adivinaba con `this.currentPhase ?? 'product'`. Con dos fases
+> activas a la vez (diseño y arquitecto/backend), ese fallback sería
+> ambiguo — cada punto de llamada (`buildAskServer`/`buildDesignServer` en
+> `runPhaseOnce`) ahora pasa su propio `phase` de cierre, sin depender de
+> ningún estado compartido.

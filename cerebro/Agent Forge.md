@@ -10,9 +10,11 @@ aliases:
 
 # Agent Forge
 
-Le das una idea. Un equipo de ocho agentes de Claude la convierte en un repositorio
-completo —producto, arquitectura, backend, frontend, integración, revisión y
-entrega— mientras tú lo ves trabajar en directo desde el navegador.
+Le das una idea. Un equipo de nueve agentes de Claude la convierte en un
+repositorio completo —producto, diseño, arquitectura, backend, frontend,
+integración, revisión y entrega— mientras tú lo ves trabajar en directo desde
+el navegador. Diseño corre en paralelo con arquitecto/backend, no en serie —
+ver [[Diseño (agente y paralelismo)]].
 
 Construido sobre el [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk):
 los agentes no describen código, lo escriben en disco, ejecutan comandos, corren
@@ -32,14 +34,20 @@ los tests y arreglan lo que falla.
 - [[Seguridad (guard)]] — contención de rutas y comandos prohibidos
 - [[Workspaces y slugs]] — nombres de proyecto, deduplicación del historial
 - [[Eficiencia de tokens]] — caché entre proyectos (`excludeDynamicSections`)
-  y la Skill que siguen las ocho fases para gastar menos
+  y la Skill que siguen todos los roles para gastar menos
 - [[Aislamiento del proceso hijo]] — fuga real de herramientas ajenas (Gmail,
   Notion, Drive, el toolset del harness) y el arreglo de tres capas
+- [[Diseño (agente y paralelismo)]] — la primera fase que corre de verdad al
+  mismo tiempo que otra, y todo lo que tuvo que cambiar en el orquestador
+- [[Skills de diseño (perfect-design)]] — investigación real (skills propias
+  + búsqueda pública) destilada en dos skills: suelo de calidad y
+  calibración por objetivo del producto
 
 ### Agentes
-- [[Producto]] · [[Arquitecto]] · [[Backend]] · [[Frontend (agente)]] ·
-  [[Integración]] · [[Revisión]] · [[Correcciones]] · [[Entrega]]
-- [[Preguntas al usuario (ask)]] — cómo el agente de producto pregunta
+- [[Producto]] · [[Diseño]] · [[Arquitecto]] · [[Backend]] ·
+  [[Frontend (agente)]] · [[Integración]] · [[Revisión]] · [[Correcciones]] ·
+  [[Entrega]]
+- [[Preguntas al usuario (ask)]] — cómo preguntan producto y diseño
 
 ### Frontend (interfaz)
 - [[Interfaz y TeamFlow]] — la banda de personajes y el resto de la SPA
@@ -61,12 +69,14 @@ los tests y arreglan lo que falla.
 
 ```
 server/
-  src/orchestrator.ts   El pipeline: fases, ciclo de revisión, consumo de mensajes del SDK
-  src/roles.ts           Los ocho agentes y sus prompts
+  src/orchestrator.ts   El pipeline: fases (una en paralelo), ciclo de revisión, consumo de mensajes del SDK
+  src/roles.ts           Los nueve agentes y sus prompts
   src/guard.ts            Contención de rutas y comandos prohibidos
   src/events.ts           Vocabulario de eventos y pub/sub con replay
   src/runs.ts             Registro de ejecuciones y persistencia en .runs/
-  src/ask.ts              MCP en-proceso para preguntar al usuario
+  src/ask.ts              MCP en-proceso para preguntar al usuario (producto)
+  src/design.ts           MCP en-proceso para enseñar capturas y preguntar (diseño)
+  src/screenshot.ts       Captura de HTML con Chrome headless
   src/slug.ts             Deriva el nombre de proyecto desde la idea
   src/index.ts             API HTTP y stream SSE
 web/
@@ -76,6 +86,7 @@ workspaces/<slug>/         El repositorio generado. Es del usuario, se copia don
 .runs/<id>.jsonl           Registro append-only de cada ejecución
 .claude/skills/run-agent-forge/
                           Harness para arrancar y pilotar la app
+.claude-plugins/           Plugins locales cargados en las fases (ver [[Eficiencia de tokens]] y [[Skills de diseño (perfect-design)]])
 cerebro/                   Este vault
 ```
 

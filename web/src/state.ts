@@ -5,13 +5,13 @@ export type Block =
   | { kind: 'thinking'; text: string; sub: boolean }
   | { kind: 'tool'; name: string; summary: string; sub: boolean }
   | { kind: 'consult'; agent: string; question: string }
-  | { kind: 'ask'; question: string; options: string[]; answer?: string }
+  | { kind: 'ask'; question: string; options: string[]; image?: string; answer?: string }
   | { kind: 'denied'; name: string; reason: string };
 
 export type PhaseState = {
   id: PhaseId;
   label: string;
-  status: 'pending' | 'running' | 'done' | 'failed' | 'stopped';
+  status: 'pending' | 'running' | 'paused' | 'done' | 'failed' | 'stopped';
   blocks: Block[];
   summary: string;
   costUsd: number;
@@ -23,7 +23,7 @@ export type PhaseState = {
 
 export type ReviewState = { verdict: 'pass' | 'changes_requested'; blockers: string[]; round: number };
 
-export type PendingAsk = { id: string; phase: PhaseId; question: string; options: string[] };
+export type PendingAsk = { id: string; phase: PhaseId; question: string; options: string[]; image?: string };
 
 export type PauseInfo = { phase: PhaseId; reason: string; resumeAt: number | null };
 
@@ -131,10 +131,13 @@ export function applyEvents(state: RunState, events: ForgeEvent[]): RunState {
         endedAt = event.ts;
         pause = null;
         // An interrupted phase never emits phase.end, so without this it keeps
-        // rendering as "trabajando…" on a run whose header already says detenida.
+        // rendering as "trabajando…"/"pausada" on a run whose header already
+        // says detenida.
         if (event.status !== 'done') {
           for (const id of PHASE_ORDER) {
-            if (phases[id].status === 'running') touch(id).status = 'stopped';
+            if (phases[id].status === 'running' || phases[id].status === 'paused') {
+              touch(id).status = 'stopped';
+            }
           }
         }
         break;
@@ -192,11 +195,13 @@ export function applyEvents(state: RunState, events: ForgeEvent[]): RunState {
           phase: event.phase,
           question: event.question,
           options: event.options,
+          image: event.image,
         };
         touch(event.phase).blocks.push({
           kind: 'ask',
           question: event.question,
           options: event.options,
+          image: event.image,
         });
         break;
 
@@ -224,14 +229,23 @@ export function applyEvents(state: RunState, events: ForgeEvent[]): RunState {
         ];
         break;
 
-      case 'paused':
-        status = 'paused';
+      // Diseño puede pausarse por cuota mientras arquitecto/backend siguen
+      // trabajando de verdad — el status global solo baja a "paused" si NO
+      // queda ninguna fase corriendo, no en cuanto pausa la primera.
+      case 'paused': {
+        touch(event.phase).status = 'paused';
         pause = { phase: event.phase, reason: event.reason, resumeAt: event.resumeAt };
+        const algunaCorriendo = Object.values(phases).some((p) => p.status === 'running');
+        status = algunaCorriendo ? 'running' : 'paused';
         break;
+      }
 
       case 'resumed':
+        touch(event.phase).status = 'running';
         status = 'running';
-        pause = null;
+        // El banner es uno solo: si la que reanuda no es la que lo abrió, se
+        // deja como está (la otra fase sigue pausada de verdad).
+        if (pause?.phase === event.phase) pause = null;
         break;
 
       case 'log':

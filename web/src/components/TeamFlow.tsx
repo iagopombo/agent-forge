@@ -12,6 +12,7 @@ type Props = {
 const META: Record<PhaseState['status'], string> = {
   pending: 'en espera',
   running: 'trabajando…',
+  paused: 'sin cuota, espera…',
   done: 'terminado',
   failed: 'con errores',
   stopped: 'interrumpida',

@@ -35,6 +35,12 @@ export function AskPanel({ runId, ask }: Props) {
         <p className="ask-question">{ask.question}</p>
       </div>
 
+      {ask.image && (
+        <div className="ask-image">
+          <img src={ask.image} alt="Captura del diseño actual" />
+        </div>
+      )}
+
       <div className="ask-options">
         {ask.options.map((opt, i) => (
           <button

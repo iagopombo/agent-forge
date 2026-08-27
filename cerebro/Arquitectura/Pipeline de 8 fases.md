@@ -2,30 +2,42 @@
 title: Pipeline de 8 fases
 tags:
   - arquitectura
+aliases:
+  - Pipeline de 9 fases
 ---
 
 # Pipeline de 8 fases
+
+> [!info] El nombre se quedó corto: son 9 roles desde que existe [[Diseño]]
+> El título original es de cuando eran ocho fases estrictamente lineales. Se
+> mantiene por no romper todos los enlaces que ya apuntan aquí — el alias
+> "Pipeline de 9 fases" resuelve a esta misma nota.
 
 Cada fase es una sesión independiente del Claude Agent SDK sobre el mismo
 workspace. El contrato entre agentes son los documentos de `docs/`: cada agente
 lee lo que escribió el anterior antes de tocar nada, y ninguno puede
 contradecirlo en silencio (regla 3 de [[Producto|las reglas comunes]]).
 
-## Las cinco fases lineales
+## product → (diseño ‖ arquitecto → backend) → frontend → integración
 
-Definidas en `PIPELINE` (`server/src/roles.ts`), se ejecutan en orden fijo:
+Ya no es una lista lineal: desde [[Diseño (agente y paralelismo)|que diseño
+corre en paralelo]] con arquitecto+backend, `Run.pipeline()`
+(`server/src/orchestrator.ts`) escribe cada paso explícito en vez de iterar
+un array fijo (el antiguo `PIPELINE` de `roles.ts` ya no existe).
 
 1. [[Producto]] → `docs/00-BRIEF.md` + `docs/00-NEGOCIO.md`
-2. [[Arquitecto]] → `docs/01-ARCHITECTURE.md`, `02-DATA-MODEL.md`,
-   `03-API-CONTRACT.md`, `04-WORKPLAN.md` + esqueleto del repo
-3. [[Backend]] → todos los endpoints del contrato
-4. [[Frontend (agente)]] → toda la interfaz contra el backend real
-5. [[Integración]] → arranca todo desde cero y corrige desajustes
+2. **En paralelo:**
+   - [[Diseño]] → `docs/DESIGN.md` + `design/pantallas/*.html`, aprobados por
+     el usuario
+   - [[Arquitecto]] → `docs/01-ARCHITECTURE.md`, `02-DATA-MODEL.md`,
+     `03-API-CONTRACT.md`, `04-WORKPLAN.md` + esqueleto del repo, seguido de
+     [[Backend]] → todos los endpoints del contrato
+3. [[Frontend (agente)]] → espera a que diseño Y backend terminen los dos;
+   toda la interfaz contra el backend real, siguiendo el diseño aprobado
+4. [[Integración]] → arranca todo desde cero y corrige desajustes
 
-> [!info] `PIPELINE` no incluye review/fix/package
-> El array `PIPELINE` en `roles.ts` solo lista estas cinco. El ciclo de
-> revisión y el empaquetado los añade `Run.pipeline()` en
-> [[Orquestador|orchestrator.ts]] a mano, después del bucle — porque no son
+> [!info] El ciclo de revisión y el empaquetado siguen fuera de esta cadena
+> `Run.pipeline()` los añade a mano después de integración — no son
 > lineales, son un ciclo con condición de salida.
 
 ## El ciclo revisión → correcciones → revisión
@@ -77,3 +89,9 @@ para cuando la ejecución se detuvo o falló del todo).
 > aunque ya estén terminadas en disco. `seedPriorPhases()` lo corrige
 > reproduciendo su resultado como eventos sintéticos al arrancar. Ver
 > [[Orquestador#Sembrado de fases previas al retomar (seedPriorPhases)]].
+>
+> Desde que diseño corre en paralelo con arquitecto/backend, sembrar ya no es
+> "todo lo anterior a `startFrom` por posición" (no hay una posición única
+> que lo represente) — es "todo lo que tenga éxito en `prior`, salvo la fase
+> que se reintenta y todo lo que dependa de ella". Detalle completo y el bug
+> real que encontró esto en [[Diseño (agente y paralelismo)]].

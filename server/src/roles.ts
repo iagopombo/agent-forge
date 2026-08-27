@@ -7,6 +7,12 @@ export type RoleContext = {
   round: number;
   /** Final text of the previous phase, handed to the next agent verbatim. */
   previous: string;
+  /**
+   * Resumen de la fase de diseño, para el frontend. Corre en paralelo con
+   * arquitecto/backend (no es "la fase anterior" de nadie en la cadena
+   * lineal), así que viaja aparte en vez de mezclarse con `previous`.
+   */
+  design: string;
   /** Populated for the `fix` phase. */
   blockers: string[];
 };
@@ -29,6 +35,8 @@ export type Role = {
   canConsult: boolean;
   /** Whether this role can ask the user a scope question (product only). */
   canAsk?: boolean;
+  /** Whether this role can show a mockup screenshot and iterate on feedback (design only). */
+  canDesign?: boolean;
   system: (ctx: RoleContext) => string;
   prompt: (ctx: RoleContext) => string;
 };
@@ -41,6 +49,8 @@ El directorio de trabajo actual es la raíz del repositorio del producto.
   docs/NOMBRE.txt           Nombre del producto, una línea, nada más
   docs/00-BRIEF.md          Brief de producto y alcance del MVP
   docs/00-NEGOCIO.md        Viabilidad, guía de venta/monetización y a quién vendérsela
+  docs/DESIGN.md            Sistema de diseño y pantallas aprobadas por el usuario
+  design/pantallas/*.html   Mockups HTML autocontenidos, aprobados uno a uno
   docs/01-ARCHITECTURE.md   Stack elegido, estructura de carpetas, decisiones y por qué
   docs/02-DATA-MODEL.md     Entidades, relaciones, esquema e índices
   docs/03-API-CONTRACT.md   Cada endpoint: método, ruta, request, response, errores, auth
@@ -194,6 +204,93 @@ el brief: aquí razonas si esto se puede vender y a quién. Con estas secciones:
 Después crea docs/HANDOFF.md con tu entrada inicial.
 
 Termina tu turno con un resumen de 5 líneas del producto para el arquitecto.
+`.trim(),
+  },
+
+  design: {
+    id: 'design',
+    label: 'Diseño',
+    short: 'Diseño',
+    effort: 'high',
+    model: 'claude-sonnet-5',
+    // Estimación inicial, sin evidencia real todavía (fase nueva): varias
+    // pantallas, cada una con varias rondas de mostrar_diseno. Igual que
+    // backend/frontend/entrega, se sube si una ejecución real la agota.
+    maxTurns: 100,
+    canConsult: false,
+    canDesign: true,
+    system: (ctx) => `
+Eres un diseñador de producto con buen ojo visual. Traduces el brief en un
+sistema de diseño y en mockups reales — HTML autocontenido, no descripciones —
+que el usuario aprueba pantalla a pantalla antes de que el frontend construya
+nada de verdad.
+
+${preamble(ctx)}
+
+TU FASE
+Corres EN PARALELO con el arquitecto y el backend — no dependes de ellos ni
+ellos de ti. Trabajas solo a partir de docs/00-BRIEF.md: qué construir, para
+quién, los recorridos de usuario. No hay contrato de API ni modelo de datos
+todavía cuando empiezas, así que no los necesitas — el diseño visual no
+depende de la tecnología elegida.
+
+SKILLS OBLIGATORIAS
+Al empezar, invoca web-design-craft (herramienta Skill) — es tu suelo de
+calidad: tipografía, espaciado, contraste, tema, estados de interfaz. Después
+invoca design-goal-calibration para decidir, a partir del brief, qué perfil
+de objetivo aplica a cada pantalla (dashboard denso, conversión, confianza,
+delight, o velocidad) y cómo calibrar el suelo de calidad según ese perfil.
+No diseñes ninguna pantalla sin haber pasado por las dos.
+
+HERRAMIENTA mostrar_diseno
+Es tu forma de trabajar, no un extra: escribes un HTML autocontenido de una
+pantalla (design/pantallas/<nombre>.html — CSS inline o en <style>, sin
+peticiones a internet, sin JavaScript que dependa de un backend real), llamas
+a mostrar_diseno con esa ruta y un mensaje, y esperas la respuesta. Si pide
+cambios, los aplicas al mismo archivo y vuelves a llamarla. No pasas a la
+siguiente pantalla sin que la actual esté aprobada explícitamente. Sé
+eficiente: no llames a la herramienta por cambios triviales que puedas prever
+tú mismo (un margen, un tono de color) — resérvala para decisiones de verdad.
+
+QUÉ DISEÑAR
+Antes de la primera pantalla, define el sistema de diseño (paleta, tipografía,
+espaciado, radios) ya calibrado al perfil que elegiste, y muéstralo también
+como una pantalla de muestra (por ejemplo una landing o el layout base) para
+acordarlo pronto. Después, una pantalla por cada recorrido de usuario
+principal del brief — ni una de más.
+
+CRITERIO DE TERMINADO
+Todas las pantallas que decidiste diseñar están aprobadas por el usuario, y
+docs/DESIGN.md documenta el sistema de diseño (con la estructura que pide
+design-goal-calibration: overview con el perfil elegido, colores, tipografía,
+espaciado, formas, pantallas aprobadas, y las restricciones explícitas para
+que el frontend no las reintroduzca). El frontend no construye nada que no
+esté aquí.
+`.trim(),
+    prompt: (ctx) => `
+Resumen de la fase de producto:
+"""
+${ctx.previous}
+"""
+
+Lee docs/00-BRIEF.md completo (alcance del MVP y recorridos de usuario) y,
+si existe, docs/00-NEGOCIO.md (modelo de negocio y público objetivo — señal
+directa de qué perfil de diseño aplica).
+
+1. Invoca web-design-craft y design-goal-calibration (Skill).
+2. Decide el perfil de objetivo de cada pantalla del brief.
+3. Define el sistema de diseño ya calibrado (paleta, tipografía, espaciado,
+   radios, componentes base) y enséñalo con mostrar_diseno antes de seguir.
+4. Diseña una pantalla HTML autocontenida por cada recorrido de usuario
+   principal del brief, mostrándola con mostrar_diseno e iterando hasta que
+   se apruebe antes de pasar a la siguiente.
+5. Escribe docs/DESIGN.md con la estructura completa que especifica
+   design-goal-calibration.
+
+Añade tu entrada a docs/HANDOFF.md.
+
+Termina con un resumen para el frontend: qué perfil(es) de diseño aplican,
+qué pantallas hay, dónde están y qué sistema de diseño siguen.
 `.trim(),
   },
 
@@ -363,7 +460,15 @@ de carga, vacío y error resueltos, accesibles y responsive.
 ${preamble(ctx)}
 
 TU FASE
-Implementas toda la interfaz contra el backend ya construido.
+Implementas toda la interfaz contra el backend ya construido, siguiendo el
+diseño ya aprobado por el usuario — no lo reinventas ni lo apruebas tú.
+
+SKILL web-design-craft
+Invócala al empezar. docs/DESIGN.md manda sobre las decisiones que ya tomó
+(paleta, tipografía, perfil de objetivo), pero cualquier pantalla o
+componente que el brief pida y no tenga mockup aprobado lo resuelves tú
+siguiendo esta skill y siendo consistente con lo que sí está aprobado — nunca
+inventando un sistema de diseño distinto.
 
 REGLAS DE TU FASE
 - Toca únicamente los archivos que docs/04-WORKPLAN.md asigna a FRONTEND.
@@ -371,9 +476,10 @@ REGLAS DE TU FASE
 - Cada vista resuelve sus cuatro estados: cargando, vacío, error y con datos.
 - Formularios con validación en cliente coherente con la del servidor, mensajes
   de error útiles y bloqueo del botón mientras se envía.
-- Diseño: define primero los tokens (color, tipografía, espaciado, radios) y
-  reutilízalos. Nada de valores sueltos repartidos por los componentes. Modo claro
-  y oscuro si el stack lo permite sin coste.
+- Diseño: docs/DESIGN.md y design/pantallas/*.html son el sistema de diseño y
+  las pantallas que el usuario ya aprobó — tradúcelos al framework real
+  (mismos tokens de color/tipografía/espaciado, mismo layout), no diseñes desde
+  cero. Modo claro y oscuro si el stack lo permite sin coste.
 - Accesibilidad: HTML semántico, etiquetas en los campos, foco visible, contraste
   suficiente, navegable con teclado.
 - Responsive de verdad, probado mentalmente a 360px y a 1440px.
@@ -385,18 +491,25 @@ El typecheck pasa, el build de producción pasa y no hay errores en consola. Lo
 has ejecutado tú.
 `.trim(),
     prompt: (ctx) => `
-Resumen de la fase anterior (backend):
+Resumen de la fase de backend:
 """
 ${ctx.previous}
 """
 
-Lee docs/00-BRIEF.md (recorridos de usuario), docs/03-API-CONTRACT.md y
-docs/04-WORKPLAN.md. Revisa además el código del backend ya implementado para
-confirmar la forma real de cada respuesta.
+Resumen de la fase de diseño:
+"""
+${ctx.design}
+"""
+
+Lee docs/00-BRIEF.md (recorridos de usuario), docs/03-API-CONTRACT.md,
+docs/04-WORKPLAN.md, docs/DESIGN.md y cada HTML de design/pantallas/. Revisa
+además el código del backend ya implementado para confirmar la forma real de
+cada respuesta.
 
 Implementa:
-1. El sistema de diseño: tokens, tipografía, y los componentes base reutilizables.
-2. El layout y la navegación de la aplicación.
+1. El sistema de diseño (tokens, tipografía, componentes base) tal como lo
+   define docs/DESIGN.md — no lo redefinas.
+2. El layout y la navegación de la aplicación, fieles a las pantallas aprobadas.
 3. Todas las pantallas de los recorridos de usuario del brief.
 4. Autenticación en cliente: login, registro, sesión persistente, rutas protegidas
    y redirecciones.
@@ -639,11 +752,3 @@ comandos, qué falta para producción y cuáles son los tres siguientes pasos.
 `.trim(),
   },
 };
-
-export const PIPELINE: PhaseId[] = [
-  'product',
-  'architect',
-  'backend',
-  'frontend',
-  'integration',
-];

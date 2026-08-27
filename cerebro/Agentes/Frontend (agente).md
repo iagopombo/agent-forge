@@ -13,8 +13,9 @@ aliases:
 > producto generado. La interfaz de Agent Forge en sí (la SPA que muestra el
 > progreso en vivo) está documentada en [[Interfaz y TeamFlow]].
 
-Cuarta fase. `effort: 'xhigh'`, `model: 'claude-sonnet-5'`, `maxTurns: 170`,
-`canConsult: true`.
+Corre después de que [[Diseño]] y [[Backend]] hayan terminado los dos —
+ver [[Diseño (agente y paralelismo)]]. `effort: 'xhigh'`,
+`model: 'claude-sonnet-5'`, `maxTurns: 170`, `canConsult: true`.
 
 > [!info] Por qué 170 y no 120
 > Tope subido tras [[Red social de libros (prueba)]]: con complejidad media,
@@ -22,12 +23,19 @@ Cuarta fase. `effort: 'xhigh'`, `model: 'claude-sonnet-5'`, `maxTurns: 170`,
 > pantallas de estadísticas sin terminar). Igual que [[Backend]], subido con
 > margen en vez de reintentar cada vez que el frontend crece.
 
-Implementa toda la interfaz contra el backend ya construido: sistema de
-diseño (tokens de color/tipografía/espaciado/radios, reutilizados, nada de
-valores sueltos), layout y navegación, todas las pantallas de los recorridos
-de usuario del brief, autenticación en cliente (login, registro, sesión
+Implementa toda la interfaz contra el backend ya construido, siguiendo el
+diseño que [[Diseño|el agente de diseño]] ya dejó aprobado por el usuario en
+`docs/DESIGN.md` y `design/pantallas/*.html` — traduce esos mockups al
+framework real (mismos tokens, mismo layout), no diseña ni aprueba nada por
+su cuenta. Layout y navegación, todas las pantallas de los recorridos de
+usuario del brief, autenticación en cliente (login, registro, sesión
 persistente, rutas protegidas), capa de acceso a datos tipada contra el
 contrato, y la landing pública si el producto la necesita para vender.
+
+También invoca `web-design-craft` (ver
+[[Skills de diseño (perfect-design)]]) — para cualquier pantalla del brief
+sin mockup aprobado, que resuelve siguiendo el suelo de calidad y siendo
+consistente con lo que sí está aprobado, no inventando un sistema aparte.
 
 Reglas explícitas: consume la API real (nada de datos falsos incrustados),
 cada vista resuelve sus cuatro estados (cargando/vacío/error/con datos),

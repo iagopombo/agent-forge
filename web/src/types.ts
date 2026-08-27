@@ -1,5 +1,6 @@
 export type PhaseId =
   | 'product'
+  | 'design'
   | 'architect'
   | 'backend'
   | 'frontend'
@@ -30,7 +31,7 @@ export type ForgeEvent = Base &
     | { t: 'tool'; phase: PhaseId; id: string; name: string; summary: string; sub: boolean }
     | { t: 'file'; phase: PhaseId; path: string; action: 'write' | 'edit' }
     | { t: 'consult'; phase: PhaseId; agent: string; question: string }
-    | { t: 'ask'; phase: PhaseId; id: string; question: string; options: string[] }
+    | { t: 'ask'; phase: PhaseId; id: string; question: string; options: string[]; image?: string }
     | { t: 'answer'; phase: PhaseId; id: string; answer: string }
     | { t: 'denied'; phase: PhaseId; name: string; reason: string }
     | { t: 'review'; verdict: 'pass' | 'changes_requested'; blockers: string[]; round: number }
@@ -55,6 +56,7 @@ export type FileNode = { path: string; size: number };
 
 export const PHASE_LABELS: Record<PhaseId, string> = {
   product: 'Producto',
+  design: 'Diseño',
   architect: 'Arquitecto',
   backend: 'Backend',
   frontend: 'Frontend',
@@ -64,8 +66,16 @@ export const PHASE_LABELS: Record<PhaseId, string> = {
   package: 'Entrega',
 };
 
+/**
+ * Orden de renderizado del rail — no implica que cada fase espere a la
+ * anterior. Diseño corre en paralelo con arquitecto+backend (ver
+ * [[Orquestador]] del vault): se coloca aquí justo después de producto,
+ * pero el conector visual entre "diseño" y "arquitecto" no representa una
+ * dependencia real, es solo la posición en la fila.
+ */
 export const PHASE_ORDER: PhaseId[] = [
   'product',
+  'design',
   'architect',
   'backend',
   'frontend',

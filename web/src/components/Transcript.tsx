@@ -101,6 +101,11 @@ function BlockView({ block }: { block: Block }) {
       return (
         <div className="consult">
           <span className="consult-tag">pregunta al usuario</span>
+          {block.image && (
+            <div className="ask-image">
+              <img src={block.image} alt="Captura del diseño en ese momento" />
+            </div>
+          )}
           <span>
             {block.question}
             {block.answer ? ` → ${block.answer}` : ' → (esperando respuesta)'}

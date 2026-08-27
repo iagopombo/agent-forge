@@ -24,6 +24,27 @@ const MASCOTS: Record<PhaseId, ReactElement> = {
       <path d="M74 3v-3M62 8l-2.4-2M86 8l2.4-2" stroke="#f5c451" strokeWidth="2.4" strokeLinecap="round" />
     </>
   ),
+  design: (
+    <>
+      <path d="M48 18c17 0 30 12 30 29 0 10-5 18-13 23-1 .7-2 1.9-2 3.3v6c0 2.3-2.6 3.6-4.5 2.3l-9-6c-.5-.3-1-.5-1.6-.5C31 75 18 63 18 47 18 30 31 18 48 18Z" fill={CREAM} />
+      <ellipse cx="41" cy="45" rx="3.9" ry="5.2" fill={FACE} />
+      <ellipse cx="57" cy="45" rx="3.9" ry="5.2" fill={FACE} />
+      <circle cx="34" cy="53" r="3.2" fill="#ff9d7a" opacity="0.5" />
+      <circle cx="64" cy="53" r="3.2" fill="#ff9d7a" opacity="0.5" />
+      <path d="M41 55c3.2 3.4 11.8 3.4 15 0" stroke={FACE} strokeWidth="2.8" strokeLinecap="round" />
+      <g transform="translate(58 14) rotate(-10)">
+        <path d="M14 0c8 0 14 6 14 13 0 4-2 6-5 6-2 0-3-1-3-3 0-1 1-2 1-3 0-4-4-6-7-6-8 0-14 5-14 12 0 8 6 13 14 13 9 0 16-6 16-15C30 8 23 0 14 0Z" fill="#f3e3d3" stroke="#c9a06a" strokeWidth="1.4" />
+        <circle cx="9" cy="9" r="2.1" fill="#f5c451" />
+        <circle cx="18" cy="7" r="2.1" fill="#ff9d7a" />
+        <circle cx="22" cy="15" r="2.1" fill="#7f9cff" />
+        <circle cx="10" cy="20" r="2.1" fill="#63c8bf" />
+      </g>
+      <g transform="translate(72 44) rotate(35)">
+        <rect x="-1.6" y="-2" width="3.2" height="20" rx="1.6" fill="#c9a06a" />
+        <path d="M-3-2c0-4 6-4 6 0Z" fill="#3a3350" />
+      </g>
+    </>
+  ),
   architect: (
     <>
       <path d="M48 24c17 0 30 12 30 29 0 10-5 18-13 23-1 .7-2 1.9-2 3.3v6c0 2.3-2.6 3.6-4.5 2.3l-9-6c-.5-.3-1-.5-1.6-.5C31 81 18 69 18 53 18 36 31 24 48 24Z" fill={CREAM} />

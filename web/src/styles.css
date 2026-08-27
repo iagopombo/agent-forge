@@ -246,6 +246,14 @@ button, input, textarea { font: inherit; color: inherit; }
   margin-bottom: 6px;
 }
 .ask-question { font-size: 15px; line-height: 1.5; color: var(--text); margin: 0; }
+.ask-image {
+  margin: 12px 0;
+  border: 1px solid #2b3350;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #0a0c10;
+}
+.ask-image img { display: block; width: 100%; height: auto; }
 .ask-options { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .ask-option {
   display: flex;

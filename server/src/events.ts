@@ -6,6 +6,7 @@
 
 export type PhaseId =
   | 'product'
+  | 'design'
   | 'architect'
   | 'backend'
   | 'frontend'
@@ -39,8 +40,12 @@ export type ForgeEvent = Base &
     | { t: 'file'; phase: PhaseId; path: string; action: 'write' | 'edit' }
     /** One agent delegating to another (Task tool). */
     | { t: 'consult'; phase: PhaseId; agent: string; question: string }
-    /** The product agent is asking the user a scope question. Blocks the phase. */
-    | { t: 'ask'; phase: PhaseId; id: string; question: string; options: string[] }
+    /**
+     * The product agent is asking a scope question, or the design agent is
+     * showing a mockup screenshot and asking for feedback (`image` set, a
+     * data URL). Either way it blocks the phase.
+     */
+    | { t: 'ask'; phase: PhaseId; id: string; question: string; options: string[]; image?: string }
     /** The user answered an `ask`. `answer` is the chosen option or free text. */
     | { t: 'answer'; phase: PhaseId; id: string; answer: string }
     | { t: 'denied'; phase: PhaseId; name: string; reason: string }

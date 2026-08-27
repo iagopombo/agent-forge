@@ -7,7 +7,8 @@ import { EventLog, type ForgeEventInput, type PhaseId, type RunStatus } from './
 import { buildGuard, summarizeTool } from './guard.js';
 import { AGENT_PROCESS, childProcesses, killTree } from './procs.js';
 import { buildAskServer } from './ask.js';
-import { ARCHITECT_ADVISOR_PROMPT, PIPELINE, ROLES, type RoleContext } from './roles.js';
+import { buildDesignServer } from './design.js';
+import { ARCHITECT_ADVISOR_PROMPT, ROLES, type RoleContext } from './roles.js';
 import { projectSlug } from './slug.js';
 import crypto from 'node:crypto';
 
@@ -69,6 +70,16 @@ const HARD_ERRORS =
  * lanzó `npm start`.
  */
 const TOKEN_EFFICIENCY_PLUGIN_PATH = path.join(ROOT, '.claude-plugins', 'token-efficient-coding');
+
+/**
+ * Plugin con las Skills de calidad de diseño (`web-design-craft`,
+ * `design-goal-calibration`). Solo se añade para `design` y `frontend` — el
+ * resto de fases nunca toma decisiones visuales, así que listarles esto solo
+ * les costaría tokens sin que lo usen nunca (mismo criterio que
+ * TOKEN_EFFICIENCY_PLUGIN, pero ese sí aplica a las nueve fases).
+ */
+const DESIGN_QUALITY_PLUGIN_PATH = path.join(ROOT, '.claude-plugins', 'perfect-design');
+const DESIGN_QUALITY_PHASES = new Set<PhaseId>(['design', 'frontend']);
 
 /**
  * `env` del SDK por defecto ES `process.env` completo (documentado así: "Defaults
@@ -154,6 +165,22 @@ type ReviewBlocker = { id?: string; file?: string; problem?: string; fix?: strin
 type ReviewFile = { verdict?: string; blockers?: ReviewBlocker[]; summary?: string };
 
 /**
+ * Qué fases quedan invalidadas (no se siembran como "hechas") cuando se
+ * retoma en una fase dada. No es solo la propia fase: si se retoma en
+ * 'frontend', un 'integration' con éxito de un intento MÁS ANTIGUO validó un
+ * frontend que ya no existe — hay que invalidarlo también. Usado por
+ * `Run.seedPriorPhases`.
+ */
+const DOWNSTREAM_OF: Partial<Record<PhaseId, Set<PhaseId>>> = {
+  product: new Set(['product', 'design', 'architect', 'backend', 'frontend', 'integration']),
+  design: new Set(['design', 'frontend', 'integration']),
+  architect: new Set(['architect', 'backend', 'frontend', 'integration']),
+  backend: new Set(['backend', 'frontend', 'integration']),
+  frontend: new Set(['frontend', 'integration']),
+  integration: new Set(['integration']),
+};
+
+/**
  * Deliberately no `allowedTools`: a bare tool name there auto-approves the tool
  * *before* `canUseTool` is consulted, which would silently disable the workspace
  * containment check. Everything that needs a decision reaches the guard instead.
@@ -177,19 +204,28 @@ export class Run {
 
   private readonly abort = new AbortController();
   /**
-   * PID del proceso que el SDK lanzó para la fase en curso, si se localizó.
-   * Abortar sólo le manda SIGTERM a él: lo que el agente hubiera arrancado con
-   * Bash (un `npm install`, un servidor de desarrollo) sobrevive y sigue
-   * trabajando después de que la interfaz diga «detenida». Con el PID se puede
-   * matar el árbol entero.
+   * PIDs de los procesos que el SDK lanzó para las fases en curso. Antes era
+   * un único valor porque solo había una fase activa a la vez — ahora diseño
+   * puede correr en paralelo con arquitecto/backend, así que puede haber más
+   * de un hijo vivo al mismo tiempo. No hace falta saber qué PID es de qué
+   * fase: `stop()` los mata todos igual.
    */
-  private child: number | null = null;
-  /** Cambia con cada fase, para que un rastreo tardío no pise al siguiente. */
-  private phaseSeq = 0;
+  private children = new Set<number>();
+  /**
+   * Generación por fase (no global): si una fase se reintenta tras una pausa
+   * de cuota, su propio contador sube para que un rastreo tardío de ESA fase
+   * no pise al reintento. Con generación global, el reintento de una fase
+   * invalidaría por error el rastreo de otra fase corriendo en paralelo.
+   */
+  private phaseGen = new Map<PhaseId, number>();
   /** Motivo por el que no tiene sentido seguir con las fases que faltan. */
   private fatal: string | null = null;
-  /** Señal de "sin cuota" detectada en la fase en curso, con hora de reset. */
-  private pauseSignal: { reason: string; resumeAt: number | null } | null = null;
+  /**
+   * Estado de cada fase actualmente arrancada (corriendo o pausada por
+   * cuota), para derivar `status` sin que una pausa de una fase (p. ej.
+   * diseño) tape que otra (arquitecto/backend) sigue trabajando de verdad.
+   */
+  private activePhases = new Map<PhaseId, 'running' | 'paused'>();
   /** Tope de espera acumulada sin cuota antes de rendirse (8 h). */
   private static readonly MAX_PAUSE_MS = 8 * 60 * 60 * 1000;
   /** Preguntas del agente esperando respuesta del usuario, por id. */
@@ -234,45 +270,58 @@ export class Run {
     this.abort.abort();
   }
 
-  /** Cierra el árbol de procesos de la fase en curso. Nunca lanza. */
+  /** Cierra el árbol de procesos de cualquier fase en curso. Nunca lanza. */
   private async killAgentProcesses(): Promise<void> {
-    const pid = this.child;
-    this.child = null;
-    if (pid === null) return;
-    await killTree(pid);
+    const pids = [...this.children];
+    this.children.clear();
+    await Promise.all(pids.map((pid) => killTree(pid)));
   }
 
   /**
    * Localiza el proceso que el SDK acaba de lanzar, comparando los hijos
-   * directos de este servidor antes y después de arrancar la fase. Se descarta
-   * lo que no tenga pinta de agente porque `childProcesses` usa un `powershell`
-   * auxiliar que también aparecería como hijo nuevo.
+   * directos de este servidor antes y después de arrancar la fase. Se
+   * descarta lo que no tenga pinta de agente (`childProcesses` usa un
+   * `powershell` auxiliar que también aparecería como hijo nuevo) y lo que ya
+   * esté reclamado por otra fase corriendo en paralelo — sin ese filtro, dos
+   * fases arrancando casi a la vez (diseño y arquitecto) podrían pelearse por
+   * el mismo PID recién aparecido.
+   *
+   * Devuelve el PID encontrado (o `undefined` si se agotan los intentos) para
+   * que quien llama pueda quitarlo de `children` cuando la fase termine.
    */
-  private async trackChild(before: Set<number>, gen: number): Promise<void> {
+  private async trackChild(before: Set<number>, stopCheck: () => boolean): Promise<number | undefined> {
     for (let intento = 0; intento < 20; intento++) {
-      if (this.stopped || gen !== this.phaseSeq) return;
+      if (this.stopped || stopCheck()) return undefined;
       const nuevo = (await childProcesses(process.pid)).find(
-        (p) => !before.has(p.pid) && AGENT_PROCESS.test(p.name),
+        (p) => !before.has(p.pid) && AGENT_PROCESS.test(p.name) && !this.children.has(p.pid),
       );
       if (nuevo) {
-        if (gen === this.phaseSeq) this.child = nuevo.pid;
-        return;
+        if (!stopCheck()) this.children.add(nuevo.pid);
+        return nuevo.pid;
       }
       await this.sleep(500);
     }
+    return undefined;
   }
 
   /**
-   * Herramienta de producto: plantea una pregunta y espera. La promesa se
-   * resuelve desde `answer()` cuando el usuario contesta por la interfaz, o se
-   * rechaza si la ejecución se detiene con la pregunta abierta.
+   * Pregunta al usuario (producto) o le enseña un diseño y espera su
+   * respuesta (diseño). La promesa se resuelve desde `answer()` cuando el
+   * usuario contesta por la interfaz, o se rechaza si la ejecución se detiene
+   * con la pregunta abierta. `phase` viene siempre explícito de quien llama
+   * (no de `this.currentPhase`): con dos fases activas a la vez, adivinarlo
+   * sería ambiguo.
    */
-  private askUser = (question: string, options: string[]): Promise<string> =>
+  private askUser = (
+    phase: PhaseId,
+    question: string,
+    options: string[],
+    image?: string,
+  ): Promise<string> =>
     new Promise((resolve, reject) => {
       const id = crypto.randomBytes(4).toString('hex');
-      const phase = this.currentPhase ?? 'product';
       this.pendingAsks.set(id, { phase, resolve, reject });
-      this.emit({ t: 'ask', phase, id, question, options });
+      this.emit({ t: 'ask', phase, id, question, options, image });
     });
 
   /** Contesta una pregunta abierta. Devuelve false si el id ya no existe. */
@@ -288,6 +337,21 @@ export class Run {
   private rejectAsks(reason: string): void {
     for (const [, a] of this.pendingAsks) a.reject(new Error(reason));
     this.pendingAsks.clear();
+  }
+
+  /**
+   * Deriva `status` de qué fases hay activas ahora mismo. Con una sola fase a
+   * la vez, "pausada por cuota" y "el run está pausado" eran la misma cosa;
+   * con diseño corriendo en paralelo con arquitecto/backend ya no lo son —
+   * si diseño se queda sin cuota pero arquitecto sigue trabajando, el run
+   * entero sigue "running" de verdad, no "paused". Solo se marca `paused`
+   * cuando TODAS las fases activas lo están.
+   */
+  private updateStatus(): void {
+    if (this.stopped || this.fatal !== null) return;
+    const states = [...this.activePhases.values()];
+    if (states.length === 0) return; // nada activo ahora mismo: no tocar el status
+    this.status = states.every((s) => s === 'paused') ? 'paused' : 'running';
   }
 
   async start(): Promise<void> {
@@ -344,16 +408,28 @@ export class Run {
    * phase.start/phase.end para que se vean hechas desde el primer instante, y
    * suma su coste al total — si no, "Coste est." de esta ejecución solo
    * contaría lo gastado en este intento, no lo del proyecto entero.
+   *
+   * Siembra lo que haya en `prior` salvo la fase que se va a reintentar Y
+   * todo lo que dependa de ella (`DOWNSTREAM_OF`) — no "todo lo anterior a
+   * startFrom" por posición: con diseño corriendo en paralelo con
+   * arquitecto/backend no hay un orden lineal único que representar.
+   *
+   * La exclusión en cascada importa de verdad: si se retoma en 'frontend'
+   * pero un intento MÁS ANTIGUO de este mismo proyecto llegó a completar
+   * 'integration' con éxito, esa `prior['integration']` sigue siendo la más
+   * reciente con éxito — pero validó un frontend que ya no existe. Sin
+   * excluirla también, se sembraría como "hecha" una integración que en
+   * realidad nunca vio el frontend que se está a punto de reconstruir.
+   * `RunStore.priorPhaseOutcomes` ya solo trae fases con éxito, así que no
+   * hay riesgo de sembrar algo que en realidad falló — el riesgo era este.
    */
   private seedPriorPhases(): void {
     const prior = this.request.priorPhases;
     if (!prior) return;
-    const order = Object.keys(ROLES) as PhaseId[];
     const from = this.request.startFrom;
-    const cutoff = from ? order.indexOf(from) : order.length;
-    for (const phase of order.slice(0, cutoff < 0 ? order.length : cutoff)) {
-      const outcome = prior[phase];
-      if (!outcome) continue;
+    const invalidated = from ? DOWNSTREAM_OF[from] : undefined;
+    for (const [phase, outcome] of Object.entries(prior) as [PhaseId, PhaseOutcome][]) {
+      if (invalidated?.has(phase)) continue;
       this.emit({ t: 'phase.start', phase, label: ROLES[phase].label, round: 1 });
       this.phases.set(phase, outcome);
       this.costUsd += outcome.costUsd;
@@ -418,28 +494,84 @@ export class Run {
     });
   }
 
+  /**
+   * product -> (diseño || arquitecto -> backend) -> frontend -> integración
+   * -> review/fix/package. La única rama en paralelo es diseño frente a
+   * arquitecto+backend: diseño no depende de la arquitectura (trabaja del
+   * brief), y frontend no puede empezar sin backend (necesita la API real) ni
+   * sin diseño (necesita las pantallas aprobadas) — así que frontend es
+   * donde las dos ramas se juntan.
+   */
   private async pipeline(): Promise<void> {
     const ctx: RoleContext = {
       idea: this.request.idea,
       language: this.request.language ?? 'español',
       round: 1,
       previous: '',
+      design: '',
       blockers: [],
     };
 
     // Al retomar, las fases anteriores ya dejaron su rastro en docs/ y en el
     // código: el contrato entre agentes está en disco, no en esta variable.
     const from = this.request.startFrom;
-    const desde = from ? PIPELINE.indexOf(from) : 0;
     if (from) {
       ctx.previous = `Retomas una ejecución interrumpida en la fase "${from}". El workspace ya tiene trabajo anterior: lee docs/ y el código existente antes de escribir nada, y continúa desde ahí en lugar de empezar de cero.`;
     }
 
-    for (const phase of PIPELINE.slice(desde < 0 ? PIPELINE.length : desde)) {
+    // --- producto: siempre primero, nunca en paralelo con nada ---
+    const seededProduct = this.phases.get('product');
+    if (seededProduct) {
+      ctx.previous = seededProduct.summary;
+    } else {
       if (this.halted) return;
-      const outcome = await this.runPhase(phase, ctx);
+      const outcome = await this.runPhase('product', ctx);
       ctx.previous = outcome.summary;
-      if (phase === 'product' && outcome.ok) await this.renameToProductName();
+      if (outcome.ok) await this.renameToProductName();
+    }
+
+    // --- diseño || (arquitecto -> backend), en paralelo ---
+    if (this.halted) return;
+
+    const designCtx: RoleContext = { ...ctx };
+    const mainCtx: RoleContext = { ...ctx };
+
+    const designWork: Promise<PhaseOutcome> = this.phases.get('design')
+      ? Promise.resolve(this.phases.get('design')!)
+      : this.runPhase('design', designCtx);
+
+    const mainWork: Promise<PhaseOutcome> = (async () => {
+      const architectOutcome = this.phases.get('architect') ?? (await this.runPhase('architect', mainCtx));
+      mainCtx.previous = architectOutcome.summary;
+      if (this.halted || !architectOutcome.ok) return architectOutcome;
+
+      return this.phases.get('backend') ?? this.runPhase('backend', mainCtx);
+    })();
+
+    const [designOutcome, backendOutcome] = await Promise.all([designWork, mainWork]);
+    ctx.design = designOutcome.summary;
+    ctx.previous = backendOutcome.summary;
+
+    if (this.halted) return;
+
+    // --- frontend: necesita diseño Y backend ---
+    const seededFrontend = this.phases.get('frontend');
+    if (seededFrontend) {
+      ctx.previous = seededFrontend.summary;
+    } else {
+      const frontendOutcome = await this.runPhase('frontend', ctx);
+      ctx.previous = frontendOutcome.summary;
+    }
+
+    if (this.halted) return;
+
+    // --- integración ---
+    const seededIntegration = this.phases.get('integration');
+    if (seededIntegration) {
+      ctx.previous = seededIntegration.summary;
+    } else {
+      const integrationOutcome = await this.runPhase('integration', ctx);
+      ctx.previous = integrationOutcome.summary;
     }
 
     // Review -> fix -> review, until the reviewer passes or we run out of rounds.
@@ -529,15 +661,30 @@ export class Run {
    * cuota": pausa, espera a que la cuota vuelva y vuelve a intentar la MISMA
    * fase, que relee su trabajo y continúa. Los demás resultados (éxito, tope de
    * turnos, error duro) salen tal cual.
+   *
+   * Lleva la cuenta de esta fase en `activePhases` (running/paused) para que
+   * `updateStatus()` sepa si el run en conjunto sigue trabajando de verdad
+   * aunque ESTA fase esté esperando cuota — importa porque con diseño en
+   * paralelo con arquitecto/backend, una pausa de una no es una pausa de todas.
    */
   private async runPhase(phase: PhaseId, ctx: RoleContext): Promise<PhaseOutcome> {
-    for (;;) {
-      const outcome = await this.runPhaseOnce(phase, ctx);
-      if (!this.pauseSignal || this.stopped) return outcome;
-      const resumed = await this.waitForQuota(phase, this.pauseSignal);
-      this.pauseSignal = null;
-      if (!resumed) return outcome; // parada o se agotó la espera
-      // reintenta la misma fase
+    this.activePhases.set(phase, 'running');
+    this.updateStatus();
+    try {
+      for (;;) {
+        const { pauseSignal, ...outcome } = await this.runPhaseOnce(phase, ctx);
+        if (!pauseSignal || this.stopped) return outcome;
+        this.activePhases.set(phase, 'paused');
+        this.updateStatus();
+        const resumed = await this.waitForQuota(phase, pauseSignal);
+        if (!resumed) return outcome; // parada o se agotó la espera
+        this.activePhases.set(phase, 'running');
+        this.updateStatus();
+        // reintenta la misma fase
+      }
+    } finally {
+      this.activePhases.delete(phase);
+      this.updateStatus();
     }
   }
 
@@ -547,7 +694,6 @@ export class Run {
     signal: { reason: string; resumeAt: number | null },
   ): Promise<boolean> {
     const startedWaiting = Date.now();
-    this.status = 'paused';
     this.emit({ t: 'paused', phase, reason: signal.reason, resumeAt: signal.resumeAt });
 
     while (!this.stopped) {
@@ -561,11 +707,9 @@ export class Run {
       const remaining = target - Date.now();
       if (remaining <= 0) break;
       await this.sleep(Math.min(remaining, 15_000)); // troceado, para cortar al parar
-      if (this.status === 'paused' && Date.now() >= target) break;
     }
 
     if (this.stopped) return false;
-    this.status = 'running';
     this.emit({ t: 'resumed', phase });
     return true;
   }
@@ -585,7 +729,10 @@ export class Run {
     });
   }
 
-  private async runPhaseOnce(phase: PhaseId, ctx: RoleContext): Promise<PhaseOutcome> {
+  private async runPhaseOnce(
+    phase: PhaseId,
+    ctx: RoleContext,
+  ): Promise<PhaseOutcome & { pauseSignal: { reason: string; resumeAt: number | null } | null }> {
     const role = ROLES[phase];
     const startedAt = Date.now();
     this.currentPhase = phase;
@@ -594,9 +741,12 @@ export class Run {
     // Foto de los hijos directos antes de que el SDK lance el suyo: el que
     // aparezca después es esta fase, y su árbol es lo que hay que cerrar al
     // detener. Se saca ya, porque `query()` arranca el proceso en cuanto se
-    // pide el primer mensaje.
-    const gen = ++this.phaseSeq;
-    this.child = null;
+    // pide el primer mensaje. Generación POR FASE (no global): si esta misma
+    // fase se reintenta tras una pausa de cuota, sube solo la suya — con un
+    // contador global, el reintento de otra fase corriendo en paralelo
+    // invalidaría por error este rastreo.
+    const myGen = (this.phaseGen.get(phase) ?? 0) + 1;
+    this.phaseGen.set(phase, myGen);
     const before = new Set((await childProcesses(process.pid)).map((p) => p.pid));
 
     const options: Options = {
@@ -629,7 +779,12 @@ export class Run {
       // caché entre dos ejecuciones de Agent Forge distintas) y lo reinyecta
       // como primer mensaje de usuario — el propio CONTRACT ya deja claro que
       // cwd es la raíz del repo, así que no se pierde nada steering ahí.
-      plugins: [{ type: 'local', path: TOKEN_EFFICIENCY_PLUGIN_PATH }],
+      plugins: [
+        { type: 'local', path: TOKEN_EFFICIENCY_PLUGIN_PATH },
+        ...(DESIGN_QUALITY_PHASES.has(phase)
+          ? [{ type: 'local' as const, path: DESIGN_QUALITY_PLUGIN_PATH }]
+          : []),
+      ],
       systemPrompt: {
         type: 'preset',
         preset: 'claude_code',
@@ -642,7 +797,17 @@ export class Run {
       },
       // El agente de producto puede preguntar al usuario ante una duda de
       // alcance. La herramienta vive en este proceso y bloquea hasta la respuesta.
-      ...(role.canAsk ? { mcpServers: { forge: buildAskServer(this.askUser) } } : {}),
+      ...(role.canAsk
+        ? { mcpServers: { forge: buildAskServer((q, opts) => this.askUser(phase, q, opts)) } }
+        : {}),
+      // El agente de diseño enseña una captura y espera feedback, en bucle.
+      ...(role.canDesign
+        ? {
+            mcpServers: {
+              forge: buildDesignServer(this.workspace, (q, opts, img) => this.askUser(phase, q, opts, img)),
+            },
+          }
+        : {}),
       ...(role.canConsult
         ? {
             agents: {
@@ -662,10 +827,12 @@ export class Run {
     let summary = '';
     let ok = false;
     let costUsd = 0;
+    let pauseSignal: { reason: string; resumeAt: number | null } | null = null;
 
     // En paralelo, porque el proceso todavía no existe: aparecerá mientras el
-    // primer mensaje viaja de vuelta.
-    void this.trackChild(before, gen);
+    // primer mensaje viaja de vuelta. Se recoge al final (ya habrá resuelto
+    // hace rato) solo para poder quitar el PID de `children` al terminar.
+    const trackPromise = this.trackChild(before, () => this.phaseGen.get(phase) !== myGen);
 
     try {
       for await (const message of query({ prompt: role.prompt(ctx), options })) {
@@ -678,7 +845,7 @@ export class Run {
               ? message.result
               : `La fase terminó por "${message.subtype}". ${(message.errors ?? []).join(' ')}`.trim();
           // El SDK no siempre lanza: a veces el motivo viene en el resultado.
-          if (!ok) this.classifyFailure(summary);
+          if (!ok) pauseSignal = this.classifyFailure(summary);
         }
       }
     } catch (err) {
@@ -686,32 +853,35 @@ export class Run {
       const detalle = describeError(err);
       summary = `La fase falló: ${detalle}`;
       this.emit({ t: 'log', level: 'error', msg: summary });
-      this.classifyFailure(detalle);
+      pauseSignal = this.classifyFailure(detalle);
     }
 
-    this.child = null;
+    const pid = await trackPromise;
+    if (pid !== undefined) this.children.delete(pid);
     this.costUsd += costUsd;
     const outcome: PhaseOutcome = { ok, summary, costUsd, durationMs: Date.now() - startedAt };
     // Sin cuota no cuenta como fase hecha: se registra al reintentar y salir bien.
-    if (!this.pauseSignal) {
+    if (!pauseSignal) {
       this.phases.set(phase, outcome);
       this.emit({ t: 'phase.end', phase, ...outcome });
     }
-    return outcome;
+    return { ...outcome, pauseSignal };
   }
 
   /**
-   * Clasifica el motivo de un fallo: sin cuota (pausa) o fatal (detiene).
-   * Solo lo que suena a cuota se reintenta solo; todo lo demás —incluido un
-   * error que no encaja en ningún patrón conocido, como un código de salida
-   * crudo del proceso— es fatal por defecto. La alternativa (dejar pasar lo
-   * no reconocido) cae en cascada: las fases siguientes fallan una tras otra
-   * en milisegundos porque les falta el trabajo de la que sí murió.
+   * Clasifica el motivo de un fallo: sin cuota (pausa, devuelta para que
+   * `runPhase` reintente) o fatal (detiene toda la ejecución vía `this.fatal`
+   * — eso sí es un campo compartido a propósito: un error fatal para de
+   * verdad, aunque haya otra fase corriendo en paralelo). Solo lo que suena a
+   * cuota se reintenta solo; todo lo demás —incluido un error que no encaja
+   * en ningún patrón conocido, como un código de salida crudo del proceso— es
+   * fatal por defecto. La alternativa (dejar pasar lo no reconocido) cae en
+   * cascada: las fases siguientes fallan una tras otra en milisegundos porque
+   * les falta el trabajo de la que sí murió.
    */
-  private classifyFailure(detail: string): void {
+  private classifyFailure(detail: string): { reason: string; resumeAt: number | null } | null {
     if (QUOTA_ERRORS.test(detail)) {
-      this.pauseSignal = { reason: detail, resumeAt: parseResetAt(detail) };
-      return;
+      return { reason: detail, resumeAt: parseResetAt(detail) };
     }
     this.fatal = detail;
     this.emit({
@@ -721,6 +891,7 @@ export class Run {
         ? 'Se detiene la ejecución: el resto de fases fallaría igual. El trabajo hecho sigue en el workspace.'
         : 'Se detiene la ejecución: el error no tiene forma de aviso de cuota conocido, así que no se reintenta solo. El trabajo hecho sigue en el workspace.',
     });
+    return null;
   }
 
   /** Turns SDK messages into UI events. */
