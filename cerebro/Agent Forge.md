@@ -48,6 +48,7 @@ los tests y arreglan lo que falla.
 - [[Cuota, pausas y reanudación]] — la nota más importante para operar esto
 - [[Autenticación y consumo]] — API key vs. suscripción de Claude Code
 - [[Fiabilidad del servidor de fondo]] — el servidor cayéndose y una fase colgada, dos incidentes reales sin fix de código
+- [[Control de versiones]] — el repo privado en GitHub, qué queda fuera y por qué
 
 ### Pruebas reales
 - [[Cuentas Claras (prueba)]]
