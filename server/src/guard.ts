@@ -1,6 +1,5 @@
 import path from 'node:path';
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import type { ForgeEventInput, PhaseId } from './events.js';
 
 /**
  * Commands that are never appropriate for a code-generating agent working in a
@@ -125,12 +124,11 @@ export function summarizeTool(name: string, input: Record<string, unknown>): str
  */
 export function buildGuard(
   workspace: string,
-  phase: () => PhaseId,
-  emit: (e: ForgeEventInput) => void,
+  onDeny: (name: string, reason: string) => void,
 ): CanUseTool {
   return async (toolName, input): Promise<PermissionResult> => {
     const deny = (reason: string): PermissionResult => {
-      emit({ t: 'denied', phase: phase(), name: toolName, reason });
+      onDeny(toolName, reason);
       return {
         behavior: 'deny',
         message: `Bloqueado por Agent Forge: ${reason}. Trabaja solo dentro del workspace y sin acciones hacia el exterior.`,

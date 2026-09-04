@@ -4,6 +4,7 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { CONFIG } from './config.js';
+import { consoles, replayConsole, type ConsoleEvent } from './console.js';
 import type { PhaseId } from './events.js';
 import { listWorkspace, readWorkspaceFile } from './files.js';
 import { ROLES } from './roles.js';
@@ -165,6 +166,78 @@ app.get('/api/runs/:id/events', async (req, res) => {
   });
 });
 
+/**
+ * Consola de Claude Code sobre el workspace de una ejecución. Abrir el stream
+ * crea la sesión pero no lanza ningún proceso: eso pasa con el primer mensaje.
+ */
+app.get('/api/runs/:id/console/events', async (req, res) => {
+  const workspace = await consoleWorkspace(req.params.id);
+  if (!workspace) {
+    res.status(404).json({ error: 'No existe el workspace de esa ejecución.' });
+    return;
+  }
+
+  const from = Number(req.query.from ?? req.header('last-event-id') ?? 0) || 0;
+  const session = await consoles.open(req.params.id, workspace);
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  // Una consola recién abierta no tiene ni un evento que mandar, y sin un primer
+  // byte el proxy de desarrollo retiene las cabeceras: el navegador se queda en
+  // "conectando…" sobre un stream que en realidad ya está abierto.
+  res.write(': open\n\n');
+
+  const send = (event: ConsoleEvent) => {
+    res.write(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`);
+  };
+
+  // El búfer en memoria solo tiene lo de esta sesión; lo anterior está en disco.
+  const buffered = session.log.since(from);
+  const firstBuffered = buffered[0]?.seq ?? Infinity;
+  for (const event of await replayConsole(req.params.id, from)) {
+    if (event.seq < firstBuffered) send(event);
+  }
+  for (const event of buffered) send(event);
+
+  const unsubscribe = session.log.subscribe(send);
+  const heartbeat = setInterval(() => res.write(': keep-alive\n\n'), 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
+
+app.post('/api/runs/:id/console/message', async (req, res) => {
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+  if (!text) {
+    res.status(400).json({ error: 'Escribe un mensaje.' });
+    return;
+  }
+  const workspace = await consoleWorkspace(req.params.id);
+  if (!workspace) {
+    res.status(404).json({ error: 'No existe el workspace de esa ejecución.' });
+    return;
+  }
+  (await consoles.open(req.params.id, workspace)).send(text);
+  res.json({ ok: true });
+});
+
+app.post('/api/runs/:id/console/interrupt', (req, res) => {
+  const session = consoles.get(req.params.id);
+  if (!session) {
+    res.status(404).json({ error: 'Esa consola no está abierta.' });
+    return;
+  }
+  session.interrupt();
+  res.json({ ok: true });
+});
+
 app.get('/api/runs/:id/files', async (req, res) => {
   // workspaceFor sólo valida la forma del id (frena la travesía); la carpeta
   // real la resuelve runs.workspaceOf, porque se llama por el proyecto.
@@ -204,6 +277,13 @@ if (fs.existsSync(CONFIG.webDist)) {
 function workspaceFor(id: string): string | null {
   if (!/^[A-Za-z0-9._-]+$/.test(id) || id === '.' || id === '..') return null;
   return path.join(CONFIG.workspacesRoot, id);
+}
+
+/** Workspace existente de una ejecución, o null si el id o la carpeta no valen. */
+async function consoleWorkspace(id: string): Promise<string | null> {
+  if (!workspaceFor(id)) return null;
+  const workspace = await runs.workspaceOf(id);
+  return workspace && fs.existsSync(workspace) ? workspace : null;
 }
 
 /** `min` distingue las rondas (0 = «no revises») del presupuesto (0 no significa nada). */

@@ -40,6 +40,24 @@ export type ForgeEvent = Base &
     | { t: 'log'; level: 'info' | 'warn' | 'error'; msg: string }
   );
 
+/**
+ * Vocabulario de la consola de Claude Code. Espejo de `server/src/console.ts`;
+ * no lleva `phase` porque aquí no hay fases, hay turnos del usuario.
+ */
+export type ConsoleEvent = Base &
+  (
+    | { t: 'user'; text: string }
+    | { t: 'text'; delta: string; sub: boolean }
+    | { t: 'thinking'; delta: string; sub: boolean }
+    | { t: 'tool'; id: string; name: string; summary: string; sub: boolean }
+    | { t: 'file'; path: string; action: 'write' | 'edit' }
+    | { t: 'consult'; agent: string; question: string }
+    | { t: 'denied'; name: string; reason: string }
+    | { t: 'turn.start' }
+    | { t: 'turn.end'; ok: boolean; costUsd: number }
+    | { t: 'log'; level: 'info' | 'warn' | 'error'; msg: string }
+  );
+
 export type RunSummary = {
   id: string;
   slug: string;

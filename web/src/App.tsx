@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import { AskPanel } from './components/AskPanel';
+import { ConsolePanel } from './components/ConsolePanel';
 import { FilesPanel } from './components/FilesPanel';
 import { NewRunForm } from './components/NewRunForm';
 import { TeamFlow } from './components/TeamFlow';
@@ -8,7 +9,10 @@ import { Sidebar } from './components/Sidebar';
 import { Transcript } from './components/Transcript';
 import { activePhase, type RunState } from './state';
 import { PHASE_LABELS, PHASE_ORDER, type PhaseId } from './types';
+import { useConsole } from './useConsole';
 import { useForgeRun } from './useForgeRun';
+
+type Tab = 'team' | 'console';
 
 /** La ejecución abierta vive en el hash, para que recargar no la pierda. */
 function runIdFromHash(): string | null {
@@ -19,8 +23,13 @@ function runIdFromHash(): string | null {
 export function App() {
   const [runId, setRunId] = useState<string | null>(runIdFromHash);
   const [pinnedPhase, setPinnedPhase] = useState<PhaseId | null>(null);
+  const [tab, setTab] = useState<Tab>('team');
+  // Una vez abierta, la consola sigue conectada aunque se vuelva a la pestaña
+  // del equipo: cambiar de pestaña no debe cortar un turno a medias.
+  const [consoleOpened, setConsoleOpened] = useState(false);
   const [keyMissing, setKeyMissing] = useState(false);
   const { state, connected, refresh } = useForgeRun(runId);
+  const consoleRun = useConsole(runId, consoleOpened);
 
   useEffect(() => {
     api
@@ -34,6 +43,8 @@ export function App() {
     const onHash = () => {
       setRunId(runIdFromHash());
       setPinnedPhase(null);
+      setTab('team');
+      setConsoleOpened(false);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -52,6 +63,15 @@ export function App() {
       ? PHASE_ORDER.find((id) => state.phases[id].status !== 'done')
       : undefined;
 
+  // Lo que han tocado los agentes y lo que ha tocado la consola, en un solo
+  // mapa: el panel de workspace lo usa para marcar archivos y, porque cambia
+  // de tamaño con cada escritura, para saber cuándo releer el árbol.
+  const touchedFiles = useMemo(() => {
+    const merged = new Map<string, unknown>(state.files);
+    for (const [path, action] of consoleRun.state.files) merged.set(path, action);
+    return merged;
+  }, [state.files, consoleRun.state.files]);
+
   const openRun = (id: string | null) => {
     // Escribir el hash dispara `hashchange`, que es quien actualiza el estado.
     // Si ya estamos en ese hash el evento no llega, así que se fija a mano.
@@ -59,9 +79,16 @@ export function App() {
     if (window.location.hash === next) {
       setRunId(id);
       setPinnedPhase(null);
+      setTab('team');
+      setConsoleOpened(false);
     } else {
       window.location.hash = next;
     }
+  };
+
+  const openConsole = () => {
+    setConsoleOpened(true);
+    setTab('console');
   };
 
   return (
@@ -105,9 +132,45 @@ export function App() {
 
             {state.reviews.length > 0 && <ReviewBanner review={state.reviews[state.reviews.length - 1]!} />}
 
-            <div className="workspace">
-              <Transcript phase={state.phases[selected]} />
-              <FilesPanel runId={runId} state={state} />
+            <div className="tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'team'}
+                className={`tab ${tab === 'team' ? 'is-active' : ''}`}
+                onClick={() => setTab('team')}
+              >
+                Trabajo del equipo
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === 'console'}
+                className={`tab ${tab === 'console' ? 'is-active' : ''}`}
+                disabled={running}
+                onClick={openConsole}
+                title={
+                  running
+                    ? 'Disponible cuando el equipo termine: mientras construyen, dos agentes escribiendo el mismo workspace se pisan.'
+                    : 'Sigue mejorando esta aplicación con Claude Code sobre el mismo workspace'
+                }
+              >
+                Consola
+                <span className="tab-badge">Claude Code</span>
+              </button>
+            </div>
+
+            <div className={`workspace ${tab === 'console' ? 'is-console' : ''}`}>
+              {tab === 'console' ? (
+                <ConsolePanel
+                  runId={runId}
+                  state={consoleRun.state}
+                  connected={consoleRun.connected}
+                />
+              ) : (
+                <Transcript phase={state.phases[selected]} />
+              )}
+              <FilesPanel runId={runId} touched={touchedFiles} />
             </div>
 
             {state.logs.length > 0 && (
