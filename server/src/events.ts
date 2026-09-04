@@ -17,7 +17,7 @@ export type PhaseId =
 
 export type RunStatus = 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'stopped';
 
-type Base = { seq: number; ts: number };
+export type Base = { seq: number; ts: number };
 
 export type ForgeEvent = Base &
   (
@@ -64,17 +64,31 @@ export type ForgeEventInput = DistributiveOmit<ForgeEvent, 'seq' | 'ts'>;
 /**
  * Per-run pub/sub with replay. The buffer is capped; `firstSeq` lets a late
  * subscriber detect that it missed events rather than silently skipping them.
+ *
+ * Genérico en el tipo de evento: el pipeline emite `ForgeEvent` y la consola
+ * de Claude Code su propio vocabulario (ver `console.ts`), pero el replay por
+ * `seq`, el tope del búfer y la suscripción son idénticos en los dos.
  */
-export class EventLog {
-  private events: ForgeEvent[] = [];
-  private listeners = new Set<(e: ForgeEvent) => void>();
-  private nextSeq = 0;
+export class EventLog<E extends Base = ForgeEvent> {
+  private events: E[] = [];
+  private listeners = new Set<(e: E) => void>();
+  private nextSeq: number;
   private dropped = 0;
 
-  constructor(private readonly capacity: number) {}
+  /**
+   * `startSeq` continúa la numeración de un registro ya escrito en disco. Sin
+   * él, una consola reabierta tras reiniciar el servidor volvería a emitir
+   * desde 0 y el navegador mezclaría los eventos nuevos con los viejos.
+   */
+  constructor(
+    private readonly capacity: number,
+    startSeq = 0,
+  ) {
+    this.nextSeq = startSeq;
+  }
 
-  emit(input: ForgeEventInput): ForgeEvent {
-    const event = { ...input, seq: this.nextSeq++, ts: Date.now() } as ForgeEvent;
+  emit(input: DistributiveOmit<E, 'seq' | 'ts'>): E {
+    const event = { ...input, seq: this.nextSeq++, ts: Date.now() } as unknown as E;
     this.events.push(event);
     if (this.events.length > this.capacity) {
       this.dropped += this.events.length - this.capacity;
@@ -91,7 +105,7 @@ export class EventLog {
   }
 
   /** Events with `seq >= from` that are still buffered. */
-  since(from: number): ForgeEvent[] {
+  since(from: number): E[] {
     return this.events.filter((e) => e.seq >= from);
   }
 
@@ -99,7 +113,7 @@ export class EventLog {
     return this.dropped;
   }
 
-  subscribe(listener: (e: ForgeEvent) => void): () => void {
+  subscribe(listener: (e: E) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }

@@ -1,17 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
-import type { RunState } from '../state';
 import type { FileNode } from '../types';
 
-type Props = { runId: string; state: RunState };
+/**
+ * `touched` son las rutas que alguien ha escrito en esta sesión —los agentes,
+ * la consola, o ambos—. Se usa para marcarlas y, porque su tamaño cambia con
+ * cada escritura, como señal para releer el árbol: así lo que hace la consola
+ * aparece aquí en directo.
+ */
+type Props = { runId: string; touched: Map<string, unknown> };
 
-export function FilesPanel({ runId, state }: Props) {
+export function FilesPanel({ runId, touched }: Props) {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<{ content: string; truncated: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const touchedCount = state.files.size;
+  const touchedCount = touched.size;
 
   // Re-list when the agents report new writes, and while the run is live.
   useEffect(() => {
@@ -57,13 +62,12 @@ export function FilesPanel({ runId, state }: Props) {
             <div key={dir} className="files-group">
               <h3>{dir}</h3>
               {entries.map((file) => {
-                const touched = state.files.get(file.path);
                 return (
                   <button
                     key={file.path}
                     type="button"
                     className={`files-item ${selected === file.path ? 'is-selected' : ''} ${
-                      touched ? 'is-touched' : ''
+                      touched.has(file.path) ? 'is-touched' : ''
                     }`}
                     onClick={() => setSelected(file.path)}
                     title={file.path}

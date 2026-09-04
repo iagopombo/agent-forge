@@ -42,6 +42,9 @@ los tests y arreglan lo que falla.
 - [[Skills de diseño (perfect-design)]] — investigación real (skills propias
   + búsqueda pública) destilada en dos skills: suelo de calidad y
   calibración por objetivo del producto
+- [[Consola de Claude Code]] — sesión multi-turno del Agent SDK sobre el
+  workspace de una ejecución, para seguir mejorando la app sin salir de la
+  interfaz una vez que el pipeline termina
 
 ### Agentes
 - [[Producto]] · [[Diseño]] · [[Arquitecto]] · [[Backend]] ·
@@ -72,7 +75,8 @@ server/
   src/orchestrator.ts   El pipeline: fases (una en paralelo), ciclo de revisión, consumo de mensajes del SDK
   src/roles.ts           Los nueve agentes y sus prompts
   src/guard.ts            Contención de rutas y comandos prohibidos
-  src/events.ts           Vocabulario de eventos y pub/sub con replay
+  src/events.ts           Vocabulario de eventos y pub/sub con replay (genérico: EventLog<E>)
+  src/console.ts          Sesión multi-turno de Claude Code sobre el workspace, ver [[Consola de Claude Code]]
   src/runs.ts             Registro de ejecuciones y persistencia en .runs/
   src/ask.ts              MCP en-proceso para preguntar al usuario (producto)
   src/design.ts           MCP en-proceso para enseñar capturas y preguntar (diseño)
@@ -81,7 +85,8 @@ server/
   src/index.ts             API HTTP y stream SSE
 web/
   src/state.ts             Reductor que convierte eventos en estado de la interfaz
-  src/components/          TeamFlow, Mascot, transcript, explorador de archivos
+  src/console.ts           Reductor equivalente para el vocabulario de la consola
+  src/components/          TeamFlow, Mascot, transcript, explorador de archivos, consola
 workspaces/<slug>/         El repositorio generado. Es del usuario, se copia donde quiera
 .runs/<id>.jsonl           Registro append-only de cada ejecución
 .claude/skills/run-agent-forge/

@@ -44,6 +44,18 @@ export const api = {
       }),
     ),
 
+  sendConsole: (id: string, text: string) =>
+    json<{ ok: boolean }>(
+      fetch(`/api/runs/${id}/console/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      }),
+    ),
+
+  interruptConsole: (id: string) =>
+    json<{ ok: boolean }>(fetch(`/api/runs/${id}/console/interrupt`, { method: 'POST' })),
+
   listFiles: (id: string) => json<FileNode[]>(fetch(`/api/runs/${id}/files`)),
 
   readFile: (id: string, path: string) =>

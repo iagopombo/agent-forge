@@ -404,6 +404,111 @@ button, input, textarea { font: inherit; color: inherit; }
 .banner li { margin-bottom: 3px; }
 .banner code { font-family: var(--mono); font-size: 12px; }
 
+/* Pestañas: trabajo del equipo / consola */
+.tabs {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0 22px;
+  margin-top: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: -1px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.tab:hover:not(:disabled):not(.is-active) { color: var(--text); }
+.tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.tab-badge {
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 999px;
+}
+
+/* Consola de Claude Code */
+.console-tools { display: flex; align-items: center; gap: 10px; }
+.console-state { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+
+.console-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  font-size: 13.5px;
+  background: #0b0e13;
+}
+
+.console-user {
+  display: flex;
+  gap: 9px;
+  margin: 14px 0 10px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.console-user:first-child { margin-top: 0; }
+
+.console-prompt { flex: none; color: var(--accent); font-family: var(--mono); }
+
+.console-error { margin: 0; padding: 8px 14px; font-size: 12.5px; color: var(--err); }
+
+.console-input {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-soft);
+  background: var(--raised);
+}
+.console-input .console-prompt { padding-top: 9px; }
+
+.console-input textarea {
+  flex: 1;
+  min-height: 38px;
+  max-height: 40vh;
+  padding: 9px 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  outline: none;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.console-input textarea:focus { border-color: var(--accent); }
+.console-input textarea::placeholder { color: var(--faint); }
+
+.console-send, .console-stop {
+  flex: none;
+  padding: 9px 16px;
+  font-weight: 600;
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.console-send { color: #0a0c10; background: var(--accent); border: none; }
+.console-send:hover:not(:disabled) { opacity: 0.9; }
+.console-send:disabled { opacity: 0.35; cursor: not-allowed; }
+.console-stop { color: var(--err); background: none; border: 1px solid #3a2226; }
+.console-stop:hover { background: #1d1416; }
+
 /* Workspace split */
 .workspace {
   flex: 1;
@@ -414,7 +519,10 @@ button, input, textarea { font: inherit; color: inherit; }
   gap: 14px;
 }
 
-.transcript, .files {
+/* La consola necesita más ancho que el transcript: lleva las líneas de comando. */
+.workspace.is-console { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+
+.transcript, .files, .console {
   display: flex; flex-direction: column;
   min-height: 0;
   background: var(--surface);
@@ -423,13 +531,13 @@ button, input, textarea { font: inherit; color: inherit; }
   overflow: hidden;
 }
 
-.transcript-head, .files-head {
+.transcript-head, .files-head, .console-head {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-soft);
   flex-shrink: 0;
 }
-.transcript-head h2, .files-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.transcript-head h2, .files-head h2, .console-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
 
 .transcript-tools { display: flex; align-items: center; gap: 10px; }
 

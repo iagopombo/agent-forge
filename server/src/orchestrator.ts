@@ -69,7 +69,11 @@ const HARD_ERRORS =
  * del proyecto generado) — una ruta relativa dependería de desde dónde se
  * lanzó `npm start`.
  */
-const TOKEN_EFFICIENCY_PLUGIN_PATH = path.join(ROOT, '.claude-plugins', 'token-efficient-coding');
+export const TOKEN_EFFICIENCY_PLUGIN_PATH = path.join(
+  ROOT,
+  '.claude-plugins',
+  'token-efficient-coding',
+);
 
 /**
  * Plugin con las Skills de calidad de diseño (`web-design-craft`,
@@ -116,7 +120,7 @@ const CHILD_SESSION_ENV_KEYS = [
  * las claves que nos importan — de lo contrario el hijo perdería `PATH`, `HOME`
  * y todo lo que `Bash`/`npm` necesitan para funcionar.
  */
-const SPAWN_ENV: Record<string, string | undefined> = Object.fromEntries(
+export const SPAWN_ENV: Record<string, string | undefined> = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !CHILD_SESSION_ENV_KEYS.includes(key)),
 );
 
@@ -127,7 +131,7 @@ const SPAWN_ENV: Record<string, string | undefined> = Object.fromEntries(
  * que no depende de acertar con la causa exacta — lo que no está en esta lista
  * no existe para el agente, venga de donde venga.
  */
-const PIPELINE_TOOLS = [
+export const PIPELINE_TOOLS = [
   'Bash',
   'Read',
   'Write',
@@ -756,7 +760,9 @@ export class Run {
       maxTurns: role.maxTurns,
       maxBudgetUsd: this.request.maxBudgetUsd ?? CONFIG.maxBudgetUsd,
       permissionMode: 'default',
-      canUseTool: buildGuard(this.workspace, () => phase, this.emit),
+      canUseTool: buildGuard(this.workspace, (name, reason) =>
+        this.emit({ t: 'denied', phase, name, reason }),
+      ),
       // Ver CHILD_SESSION_ENV_KEYS/SPAWN_ENV/PIPELINE_TOOLS arriba: dos capas
       // independientes contra el puenteo del proceso hijo a la sesión de
       // Claude Code que lanzó este servidor.
