@@ -51,6 +51,9 @@ los tests y arreglan lo que falla.
 
 ### Frontend (interfaz)
 - [[Interfaz y TeamFlow]] — la banda de personajes y el resto de la SPA
+- [[Oficina isométrica]] — análisis de la vista estilo Habbo: coreografía de
+  entregas entre agentes, orden de pintado y plan por fases (assets en
+  `design/oficina/`)
 
 ### Operación
 - [[Cuota, pausas y reanudación]] — la nota más importante para operar esto

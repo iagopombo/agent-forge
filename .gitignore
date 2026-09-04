@@ -6,3 +6,6 @@ workspaces/
 .runs/
 *.log
 .DS_Store
+
+# Previsualizaciones generadas por design/oficina/*.mjs
+design/oficina/*.html
