@@ -49,6 +49,14 @@ se pasa de capacidad recorta por el principio (contando lo descartado en
 `dropped`, expuesto como `firstSeq`). `since(from)` filtra por `seq >= from`:
 es lo que permite a un cliente que se reconecta pedir solo lo que se perdió.
 
+> [!note] Genérica desde [[Consola de Claude Code]]
+> `EventLog<E extends Base = ForgeEvent>` — el orquestador la sigue usando sin
+> tocar nada (el genérico por defecto sigue siendo `ForgeEvent`), pero
+> `ConsoleSession` instancia `EventLog<ConsoleEvent>` con su propio
+> vocabulario (turnos en vez de fases, sin `phase`). El constructor también
+> gana un `startSeq` opcional, para que una consola reabierta continúe la
+> numeración del `.jsonl` en disco en vez de reiniciar a 0.
+
 ## El endpoint SSE (`GET /api/runs/:id/events`)
 
 En `server/src/index.ts`. Acepta `?from=N` (o la cabecera `Last-Event-ID`) para
@@ -71,3 +79,11 @@ Cada evento se persiste además línea a línea en `.runs/<id>.jsonl`
 (`RunStore.create`, suscrito al mismo `EventLog`), y en los hitos importantes
 (`phase.end`, `run.end`, `run.start`) se reescribe el manifiesto
 `.runs/<id>.json` — ver [[Workspaces y slugs]].
+
+## Vocabulario hermano: la consola
+
+`GET /api/runs/:id/console/events` sigue el mismo patrón (`?from=N`, replay
+desde disco, suscripción en directo) sobre `ConsoleEvent` en vez de
+`ForgeEvent`, persistido en `.runs/<id>.console.jsonl`. No tiene evento `end`:
+a diferencia de una ejecución, la sesión de consola no "termina" sola. Detalle
+completo en [[Consola de Claude Code]].

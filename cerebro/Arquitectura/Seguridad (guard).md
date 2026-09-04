@@ -12,6 +12,18 @@ es lo que intenta que nada salga de ahí. Se conecta al SDK vía
 `canUseTool: buildGuard(...)` en [[Orquestador]] — con `permissionMode: 'default'`
 y sin `allowedTools`, **toda** llamada a herramienta pasa por este callback.
 
+> [!note] `buildGuard` ya no conoce `PhaseId` — desde [[Consola de Claude Code]]
+> Firma actual: `buildGuard(workspace, onDeny: (name, reason) => void)`. Antes
+> recibía un `phase: () => PhaseId` y emitía el evento `denied` él mismo, lo
+> que ataba `guard.ts` al vocabulario del pipeline. Ahora solo reporta la
+> denegación por callback; cada llamador construye su propio evento
+> (`{ t: 'denied', phase, name, reason }` en el orquestador,
+> `{ t: 'denied', name, reason }` en la consola, sin `phase`). Las reglas en
+> sí — `ALLOWED_TOOLS`, contención de rutas, `FORBIDDEN_COMMANDS` — no
+> cambiaron; solo cómo se informa de una denegación, y ahora dos sesiones
+> distintas (una fase, un turno de consola) pueden compartir la misma función
+> sin que `guard.ts` sepa nada de fases.
+
 ## Lista de permitidos primero (`ALLOWED_TOOLS`)
 
 Antes de cualquier otra comprobación, el guard exige que la herramienta esté

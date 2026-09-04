@@ -61,6 +61,34 @@ muñeco de Claude con un accesorio del oficio, coloreado según la fase:
 | [[Correcciones]] | llave inglesa amarilla + destornillador azul |
 | [[Entrega]] | caja de regalo envolviéndose, morada |
 
+## Pestañas — equipo y consola
+
+`App.tsx`. Bajo `TeamFlow` hay dos pestañas: *Trabajo del equipo* (el
+`Transcript` de siempre) y *Consola · Claude Code* (`ConsolePanel.tsx`, ver
+[[Consola de Claude Code]]). Cambiar de pestaña no navega ni desmonta nada del
+otro lado — es la misma decisión que ya tomaba `pinnedPhase` para no perder el
+transcript de una fase al mirar otra.
+
+Dos estados nuevos gobiernan la consola sin acoplar `App.tsx` a su
+implementación:
+
+- `consoleOpened` — si `false`, `useConsole` ni siquiera abre el `EventSource`.
+  Pisar la pestaña del equipo (el caso normal, ninguna ejecución se mejora a
+  posteriori) no debe crear una sesión de consola de la nada.
+- Una vez `true`, se queda así aunque se vuelva a la pestaña del equipo: la
+  conexión SSE sigue viva de fondo, para no cortar un turno en marcha por
+  cambiar de pestaña sin querer.
+
+La pestaña de consola se deshabilita mientras `running` (el run está
+`'running'` o `'paused'`) — dos sesiones escribiendo el mismo workspace a la
+vez se pisarían.
+
+`FilesPanel` pasó de recibir el `RunState` completo a recibir un `touched:
+Map<string, unknown>` que `App.tsx` arma fusionando `state.files` (lo que
+tocaron los agentes) con `consoleRun.state.files` (lo que ha tocado la
+consola) — el panel no necesita saber de dónde viene cada escritura para
+marcarla en verde.
+
 ## `AskPanel` — pregunta y, si la hay, captura
 
 `web/src/components/AskPanel.tsx`. El mismo panel de siempre (pregunta + 3
