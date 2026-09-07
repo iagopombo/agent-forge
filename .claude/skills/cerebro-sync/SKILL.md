@@ -1,6 +1,6 @@
 ---
 name: cerebro-sync
-description: Mantiene el vault de Obsidian cerebro/ al día con el código de Agent Forge. ÚSALO SIEMPRE, en la misma sesión, después de cualquier cambio en server/src, web/src, README.md, roles.ts (modelos, maxTurns, prompts), orchestrator.ts (mecanismos), o tras cualquier ejecución real que revele algo nuevo (un límite agotado, un bug, un dato de coste). También cuando el usuario pregunte "¿actualizaste Obsidian/el cerebro/el vault?". Trigger words: cerebro, vault, Obsidian, documentar, actualizar la documentación.
+description: 'Mantiene el vault de Obsidian cerebro/ al día con el código de Agent Forge. ÚSALO SIEMPRE, en la misma sesión, después de cualquier cambio en server/src, web/src, README.md, roles.ts (modelos, maxTurns, prompts), orchestrator.ts (mecanismos), o tras cualquier ejecución real que revele algo nuevo (un límite agotado, un bug, un dato de coste). También cuando el usuario pregunte "¿actualizaste Obsidian/el cerebro/el vault?". Trigger words: cerebro, vault, Obsidian, documentar, actualizar la documentación.'
 ---
 
 # Sincronizar cerebro/ tras un cambio
@@ -37,7 +37,7 @@ cerrar el cambio de código, antes de dar la tarea por terminada.
    `maxTurns:` en `cerebro/Agentes/*.md`). No asumas que ya está al día
    porque "seguramente alguien lo actualizó" — compruébalo leyendo la nota.
 2. **Corrige lo que quedó desfasado, no solo añade lo nuevo.** Si una nota
-   describe el comportamiento *viejo* de una función que acabas de reescribir
+   describe el comportamiento _viejo_ de una función que acabas de reescribir
    (ver `Orquestador.md` tras el cambio de `classifyFailure`, o
    `Backend.md`/`Frontend (agente).md` con un `maxTurns` que ya no coincidía
    con el código), esa frase vieja es un error activo en el vault, igual de
@@ -47,7 +47,7 @@ cerrar el cambio de código, antes de dar la tarea por terminada.
    la estructura de las notas ya existentes: idea, tabla de intentos con
    datos reales, hallazgos, verificación manual) y enlázala desde donde
    corresponda (la nota de arquitectura del mecanismo afectado, `Aprendizajes
-   de cuota.md` si es de coste/cupo, `Fiabilidad del servidor de fondo.md` si
+de cuota.md` si es de coste/cupo, `Fiabilidad del servidor de fondo.md` si
    es un incidente operativo).
 4. **Todo dato tiene que venir de una fuente real** — `.runs/*.json`/`.jsonl`,
    el propio código, una captura, un comando ejecutado — nunca inventado ni
