@@ -28,6 +28,7 @@ los tests y arreglan lo que falla.
 ## Mapa
 
 ### Arquitectura
+
 - [[Pipeline de 8 fases]] — el flujo completo, de idea a entrega
 - [[Orquestador]] — la clase `Run`, el ciclo de revisión, pausa y reanudación
 - [[Eventos y SSE]] — el vocabulario de eventos que conecta servidor e interfaz
@@ -40,28 +41,32 @@ los tests y arreglan lo que falla.
 - [[Diseño (agente y paralelismo)]] — la primera fase que corre de verdad al
   mismo tiempo que otra, y todo lo que tuvo que cambiar en el orquestador
 - [[Skills de diseño (perfect-design)]] — investigación real (skills propias
-  + búsqueda pública) destilada en dos skills: suelo de calidad y
-  calibración por objetivo del producto
+  - búsqueda pública) destilada en dos skills: suelo de calidad y
+    calibración por objetivo del producto
 - [[Consola de Claude Code]] — sesión multi-turno del Agent SDK sobre el
   workspace de una ejecución, para seguir mejorando la app sin salir de la
   interfaz una vez que el pipeline termina
 
 ### Agentes
+
 - [[Producto]] · [[Diseño]] · [[Arquitecto]] · [[Backend]] ·
   [[Frontend (agente)]] · [[Integración]] · [[Revisión]] · [[Correcciones]] ·
   [[Entrega]]
 - [[Preguntas al usuario (ask)]] — cómo preguntan producto y diseño
 
 ### Frontend (interfaz)
+
 - [[Interfaz y TeamFlow]] — la banda de personajes y el resto de la SPA
 
 ### Operación
+
 - [[Cuota, pausas y reanudación]] — la nota más importante para operar esto
 - [[Autenticación y consumo]] — API key vs. suscripción de Claude Code
 - [[Fiabilidad del servidor de fondo]] — el servidor cayéndose y una fase colgada, dos incidentes reales sin fix de código
 - [[Control de versiones]] — el repo privado en GitHub, qué queda fuera y por qué
 
 ### Pruebas reales
+
 - [[Cuentas Claras (prueba)]]
 - [[Postúlate (prueba)]]
 - [[Red social de libros (prueba)]] — la más larga: diez intentos, un bug real
@@ -99,3 +104,14 @@ cerebro/                   Este vault
 > El README.md de la raíz del repo trae buena parte de esto en prosa continua;
 > este vault lo reorganiza en notas enlazadas y añade lo aprendido en las
 > [[Aprendizajes de cuota|pruebas reales]] que el README no cubre.
+
+> [!info] Los otros dos documentos de la raíz
+> [CONTEXT.md](../CONTEXT.md) es el glosario corto y opinado del vocabulario
+> del proyecto (Fase, Ejecución, Guard, Workspace...) — no lo sustituye este
+> vault ni al revés, son deliberadamente distintos: el glosario es corto y
+> estable, este vault es el detalle y la historia real detrás de cada
+> mecanismo. [CLAUDE.md](../CLAUDE.md) es lo que carga automáticamente
+> cualquier sesión de Claude Code al abrir este repo: manda leer `CONTEXT.md`
+> y este vault antes de tocar código, y sincronizar este vault en el mismo
+> turno tras un cambio real en `server/src`, `web/src`, `roles.ts` u
+> `orchestrator.ts` — el procedimiento exacto está en la skill `cerebro-sync`.

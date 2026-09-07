@@ -1,8 +1,9 @@
 # Agent Forge
 
-Le das una idea. Un equipo de ocho agentes de Claude la convierte en un repositorio
-completo —producto, arquitectura, backend, frontend, integración, revisión y entrega—
-mientras tú lo ves trabajar en directo desde el navegador.
+Le das una idea. Un equipo de nueve agentes de Claude la convierte en un repositorio
+completo —producto, diseño, arquitectura, backend, frontend, integración, revisión y
+entrega— mientras tú lo ves trabajar en directo desde el navegador. Diseño corre en
+paralelo con arquitecto y backend, no en serie: ver _El equipo_ más abajo.
 
 Construido sobre el [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk):
 los agentes no describen código, lo escriben en disco, ejecutan comandos, corren los
@@ -25,13 +26,13 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 La clave se saca de [platform.claude.com](https://platform.claude.com/). **Si no pones
 clave y tienes Claude Code con sesión iniciada, el SDK usa esa cuenta** — lee
-*Autenticación y consumo* antes de decidir.
+_Autenticación y consumo_ antes de decidir.
 
 ```bash
 npm run dev                  # API en :5178, interfaz en :5179
 ```
 
-Abre **http://localhost:5179**, describe tu idea y pulsa *Construir la aplicación*.
+Abre **http://localhost:5179**, describe tu idea y pulsa _Construir la aplicación_.
 
 Para producción local: `npm run build && npm start` sirve todo desde el puerto 5178.
 
@@ -41,32 +42,44 @@ Para producción local: `npm run build && npm start` sirve todo desde el puerto 
 
 Cada fase es una sesión independiente del Agent SDK sobre el mismo workspace. El
 contrato entre agentes son los documentos de `docs/`: cada uno lee lo que escribió el
-anterior, y ninguno puede contradecirlo en silencio.
+anterior, y ninguno puede contradecirlo en silencio. Ya no es una cadena estrictamente
+lineal:
 
-| Fase | Qué produce | Modelo |
-|---|---|---|
-| **Producto** | `docs/00-BRIEF.md` (alcance del MVP, usuario, recorridos, monetización) y `docs/00-NEGOCIO.md` (viabilidad, guía de venta, compradores objetivo) | Sonnet 5 |
-| **Arquitecto** | Stack, modelo de datos, contrato de API, reparto de trabajo y el esqueleto del repo | Opus 4.8 |
-| **Backend** | Todos los endpoints del contrato, auth, migraciones, seed y tests | Sonnet 5 |
-| **Frontend** | Sistema de diseño, pantallas, sesión, capa de datos tipada | Sonnet 5 |
-| **Integración** | Arranca todo desde cero, recorre los flujos y corrige los desajustes | Sonnet 5 |
-| **Revisión** | Audita y dictamina en `docs/REVIEW.json`: aprobado o con bloqueantes | Opus 4.8 |
-| **Correcciones** | Resuelve los bloqueantes con evidencia. Vuelve a revisión | Sonnet 5 |
-| **Entrega** | README, `.env.example`, guía de despliegue, operaciones, licencia | Sonnet 5 |
+```
+producto → (diseño ‖ arquitecto → backend) → frontend → integración → revisión ⇄ correcciones → entrega
+```
+
+Diseño no depende de la arquitectura (trabaja del brief de producto, no del contrato
+técnico) ni al revés; frontend es donde las dos ramas se juntan, porque no puede
+construir sin la API real ni sin las pantallas aprobadas.
+
+| Fase             | Qué produce                                                                                                                                                                  | Modelo   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| **Producto**     | `docs/00-BRIEF.md` (alcance del MVP, usuario, recorridos, monetización) y `docs/00-NEGOCIO.md` (viabilidad, guía de venta, compradores objetivo)                             | Sonnet 5 |
+| **Diseño**       | Maqueta pantallas en HTML, te las enseña como capturas e itera con tu feedback hasta que las apruebas; `docs/DESIGN.md` (paleta, tipografía, espaciado, pantallas aprobadas) | Sonnet 5 |
+| **Arquitecto**   | Stack, modelo de datos, contrato de API, reparto de trabajo y el esqueleto del repo                                                                                          | Opus 4.8 |
+| **Backend**      | Todos los endpoints del contrato, auth, migraciones, seed y tests                                                                                                            | Sonnet 5 |
+| **Frontend**     | Traduce `docs/DESIGN.md` al framework real, pantallas del recorrido, sesión y capa de datos tipada contra el backend                                                         | Sonnet 5 |
+| **Integración**  | Arranca todo desde cero, recorre los flujos y corrige los desajustes                                                                                                         | Sonnet 5 |
+| **Revisión**     | Audita y dictamina en `docs/REVIEW.json`: aprobado o con bloqueantes                                                                                                         | Opus 4.8 |
+| **Correcciones** | Resuelve los bloqueantes con evidencia. Vuelve a revisión                                                                                                                    | Sonnet 5 |
+| **Entrega**      | README, `.env.example`, guía de despliegue, operaciones, licencia                                                                                                            | Sonnet 5 |
 
 **Opus 4.8 solo en arquitecto y revisión.** Son las dos fases cuyo error se propaga a
 todas las demás —un mal contrato de API arrastra a backend y frontend; una revisión laxa
 aprueba lo que no funciona— así que son las que más se benefician de más capacidad. El
 resto ejecuta contra un contrato ya escrito: tarea bien acotada donde Sonnet 5 rinde
 igual y consume mucha menos cuota. Se puede forzar otro modelo por ejecución o con
-`FORGE_MODEL` — ver *Autenticación y consumo* más abajo.
+`FORGE_MODEL` — ver _Autenticación y consumo_ más abajo.
 
-**El agente de producto puede preguntarte.** Ante una duda de alcance que de verdad
-bifurca el producto —a qué público, qué modelo de negocio, si una pieza cara entra en el
-MVP— lanza una pregunta con tres opciones concretas y una cuarta libre para que escribas la
-tuya. El pipeline se pausa hasta que respondes desde la interfaz; tu respuesta pasa a ser
-una decisión firme del brief. Solo el agente de producto pregunta, y solo para lo que
-cambiaría lo que se construye: los detalles menores los sigue asumiendo y anotando.
+**Producto y diseño pueden preguntarte.** Ante una duda de alcance que de verdad bifurca
+el producto —a qué público, qué modelo de negocio, si una pieza cara entra en el MVP—
+producto lanza una pregunta con tres opciones concretas y una cuarta libre para que
+escribas la tuya. Diseño usa el mismo mecanismo para enseñarte una captura de la pantalla
+que acaba de maquetar: apruébala o pide cambios, y repite hasta que quede bien. En ambos
+casos la fase se pausa hasta que respondes desde la interfaz; tu respuesta pasa a ser una
+decisión firme. Ningún otro rol pregunta, y ni producto ni diseño lo hacen para detalles
+menores que se puedan asumir y anotar como supuesto.
 
 **Si te quedas sin cuota, la ejecución se pausa y se reanuda sola.** En vez de fallar, la
 fase espera a que la cuota vuelva (lee la hora de reset del propio aviso) y la reintenta: el
@@ -84,7 +97,7 @@ lugar de improvisar. Esas consultas aparecen marcadas en el transcript.
 
 **El ciclo revisión → correcciones → revisión** se repite hasta que el revisor aprueba o
 se agotan las rondas configuradas. Si se agotan, la entrega sigue adelante y los
-bloqueantes abiertos quedan documentados. Si la fase de revisión *falla*, no hay veredicto:
+bloqueantes abiertos quedan documentados. Si la fase de revisión _falla_, no hay veredicto:
 se entrega avisando de que va sin auditar, nunca dando por buena una revisión que no ocurrió.
 
 **Una ejecución interrumpida se retoma, no se repite.** El contrato entre agentes vive en
@@ -98,7 +111,7 @@ empieza por la primera fase sin terminar.
 El SDK resuelve credenciales en este orden, y la primera que encuentra gana:
 
 1. **`ANTHROPIC_API_KEY`** en `server/.env` → cuenta de API, facturación por token.
-   El contador *Coste est.* se aproxima a lo que vas a pagar de verdad.
+   El contador _Coste est._ se aproxima a lo que vas a pagar de verdad.
 2. **Sesión de Claude Code** (`~/.claude`) → tu suscripción. No se te cobra por token:
    **se consume tu cuota**, la misma que gastas usando Claude Code normalmente.
 
@@ -109,20 +122,20 @@ que falta `ANTHROPIC_API_KEY`, estás en el caso 2.
 primera ejecución de prueba agotó la cuota en la fase de arquitectura, y la segunda también.
 El arquitecto va a `effort: 'max'`, que es lo más caro que existe.
 
-Cuando pasa, la ejecución **se pausa y se reanuda sola** cuando la cuota vuelve (ver *El
-equipo* arriba): no arrasa las fases restantes ni la das por perdida. Si prefieres no
+Cuando pasa, la ejecución **se pausa y se reanuda sola** cuando la cuota vuelve (ver _El
+equipo_ arriba): no arrasa las fases restantes ni la das por perdida. Si prefieres no
 esperar y la ejecución terminó marcada como fallida por otra razón, el workspace conserva
 todo lo escrito y en la cabecera aparece **«Retomar en \<fase\>»**, que reutiliza el mismo
 directorio y arranca por la primera fase sin terminar.
 
 Por defecto **cada rol ya usa el modelo que menos cuota le hace falta** (ver
-*El equipo* arriba): esa es la primera palanca, no hace falta tocar nada. Si aun así no
+_El equipo_ arriba): esa es la primera palanca, no hace falta tocar nada. Si aun así no
 te cabe, de menos a más agresiva:
 
 - `effortCap` en la ejecución: un techo para todos los roles (`medium` corta muchísimo).
   El reparto relativo de `roles.ts` se respeta por debajo del techo.
 - `model` en la ejecución, o `FORGE_MODEL=claude-sonnet-5` para forzar el mismo modelo
-  en las ocho fases, pisando el reparto por rol.
+  en las nueve fases, pisando el reparto por rol.
 - Reducir las rondas de revisión a `0` y revisar tú.
 - Poner una `ANTHROPIC_API_KEY` y pagar por token, que es el camino previsto por el SDK.
 
@@ -149,7 +162,7 @@ estimación, así que sirve para cortar una fase desbocada aunque no estés paga
 
 ## Seguridad
 
-Cada ejecución vive en `workspaces/<id>/` y nada sale de ahí:
+Cada proyecto vive en `workspaces/<slug>/` y nada sale de ahí:
 
 - **Contención de rutas.** Cualquier escritura fuera del workspace se rechaza.
 - **Comandos prohibidos.** Borrado recursivo fuera del workspace, operaciones de disco,
@@ -179,13 +192,13 @@ el SDK la autoaprueba antes de consultar el callback.
 
 Todo por variables de entorno en `server/.env`:
 
-| Variable | Por defecto | Qué hace |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | — | Tu clave. Sin ella se usan las credenciales de Claude Code |
-| `PORT` | `5178` | Puerto de la API |
-| `FORGE_MODEL` | *(sin definir)* | Fuerza un modelo para las ocho fases, pisando el reparto por rol |
-| `FORGE_MAX_REVIEW_ROUNDS` | `2` | Ciclos de corrección antes de entregar igualmente |
-| `FORGE_MAX_BUDGET_USD` | `25` | Techo de gasto **por fase**. Al alcanzarlo, la fase para |
+| Variable                  | Por defecto     | Qué hace                                                          |
+| ------------------------- | --------------- | ----------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`       | —               | Tu clave. Sin ella se usan las credenciales de Claude Code        |
+| `PORT`                    | `5178`          | Puerto de la API                                                  |
+| `FORGE_MODEL`             | _(sin definir)_ | Fuerza un modelo para las nueve fases, pisando el reparto por rol |
+| `FORGE_MAX_REVIEW_ROUNDS` | `2`             | Ciclos de corrección antes de entregar igualmente                 |
+| `FORGE_MAX_BUDGET_USD`    | `25`            | Techo de gasto **por fase**. Al alcanzarlo, la fase para          |
 
 Las rondas y el presupuesto también se ajustan por ejecución desde el formulario.
 
@@ -203,14 +216,14 @@ Es lento. La fase de producto por sí sola tarda un par de minutos antes de escr
 primera línea: el agente está razonando, y verás ese razonamiento en la columna izquierda.
 Una ejecución completa son entre una y varias horas.
 
-**Cuánto consume depende de con qué te autentiques** (ver *Autenticación y consumo* más
-abajo). El contador de la interfaz dice *Coste est.* porque es exactamente eso: la
+**Cuánto consume depende de con qué te autentiques** (ver _Autenticación y consumo_ más
+abajo). El contador de la interfaz dice _Coste est._ porque es exactamente eso: la
 estimación que hace el SDK a tarifa de API. Con suscripción no es un cobro, es un
 indicador de consumo.
 
-Los resultados mejoran mucho con ideas concretas. *"Un SaaS de reservas para peluquerías
-donde el cliente reserva online y el negocio ve la agenda del día"* produce bastante más
-que *"una app de reservas"*.
+Los resultados mejoran mucho con ideas concretas. _"Un SaaS de reservas para peluquerías
+donde el cliente reserva online y el negocio ve la agenda del día"_ produce bastante más
+que _"una app de reservas"_.
 
 Puedes cerrar el navegador: la ejecución continúa en el servidor. Al volver a abrir la
 ejecución, el stream se reproduce desde el principio.
@@ -221,20 +234,31 @@ ejecución, el stream se reproduce desde el principio.
 
 ```
 server/
-  src/orchestrator.ts   El pipeline: fases, ciclo de revisión, consumo de mensajes del SDK
-  src/roles.ts          Los ocho agentes y sus prompts. Aquí se ajusta la calidad
+  src/orchestrator.ts   El pipeline: fases (diseño en paralelo con arquitecto/backend),
+                        ciclo de revisión, consumo de mensajes del SDK
+  src/roles.ts          Los nueve agentes y sus prompts. Aquí se ajusta la calidad
   src/guard.ts          Contención de rutas y comandos prohibidos
   src/events.ts         Vocabulario de eventos y pub/sub con replay
   src/runs.ts           Registro de ejecuciones y persistencia en .runs/
+  src/ask.ts            MCP en-proceso para que producto pregunte al usuario
+  src/design.ts         MCP en-proceso para que diseño enseñe capturas y pregunte
+  src/screenshot.ts     Captura de HTML con Chrome headless (Playwright)
+  src/slug.ts           Deriva el nombre de carpeta del proyecto desde la idea
   src/index.ts          API HTTP y stream SSE
 web/
   src/state.ts          Reductor que convierte eventos en estado de la interfaz
   src/useForgeRun.ts    Suscripción SSE con buffer (cientos de deltas por segundo)
-  src/components/       Rail de fases, transcript, explorador de archivos
-workspaces/<id>/        El repositorio generado. Es tuyo, cópialo donde quieras
+  src/components/       TeamFlow (banda de personajes), transcript, explorador de archivos
+workspaces/<slug>/      El repositorio generado, por proyecto (no por ejecución). Es
+                        tuyo, cópialo donde quieras
 .runs/<id>.jsonl        Registro append-only de cada ejecución
 .claude/skills/run-agent-forge/
                         Harness para arrancar y pilotar la app (ver su SKILL.md)
+CONTEXT.md              Glosario corto del vocabulario del proyecto (Fase, Ejecución,
+                        Guard, Workspace...)
+CLAUDE.md               Instrucciones que carga toda sesión de Claude Code en este repo
+cerebro/                Vault de Obsidian con la documentación profunda: decisiones,
+                        mecanismos, aprendizajes de pruebas reales (ver cerebro/Agent Forge.md)
 ```
 
 Ese harness trae una ejecución real grabada, así que
@@ -244,5 +268,14 @@ saca capturas **sin gastar cuota**. Útil para tocar el frontend sin pagar cada 
 ### Dónde tocar
 
 - **Calidad del resultado** → `server/src/roles.ts`. Los prompts son el 90% del producto.
-- **Añadir o quitar una fase** → `PIPELINE` en `roles.ts` y el bucle de `orchestrator.ts`.
+- **Añadir o quitar una fase** → `Run.pipeline()` en `orchestrator.ts` (ya no es un array
+  fijo que se itera; cada paso, incluido el tramo en paralelo, está escrito a mano).
 - **Más permisos para los agentes** → `FORBIDDEN_COMMANDS` en `guard.ts`.
+
+### Antes de cambiar algo
+
+Lee [CONTEXT.md](./CONTEXT.md) para el vocabulario del proyecto, y busca en
+[cerebro/](<./cerebro/Agent Forge.md>) el mecanismo concreto que vas a tocar — casi
+siempre hay una nota que explica el porqué y qué se probó ya. `CLAUDE.md` reproduce
+ambos recordatorios para que cualquier sesión de Claude Code los tenga presentes sin que
+haga falta pedirlo.
