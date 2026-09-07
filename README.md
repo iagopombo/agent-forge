@@ -279,3 +279,14 @@ Lee [CONTEXT.md](./CONTEXT.md) para el vocabulario del proyecto, y busca en
 siempre hay una nota que explica el porqué y qué se probó ya. `CLAUDE.md` reproduce
 ambos recordatorios para que cualquier sesión de Claude Code los tenga presentes sin que
 haga falta pedirlo.
+
+---
+
+## Licencia
+
+[PolyForm Noncommercial 1.0.0](./LICENSE). Puedes ver, usar, modificar y distribuir
+este código libremente para cualquier fin no comercial: estudio, uso personal,
+pruebas, organizaciones sin ánimo de lucro. Cualquier uso comercial —venderlo,
+ofrecerlo como servicio de pago, usarlo dentro de una empresa para generar
+ingresos— requiere una licencia comercial aparte: abre un issue en este repo o
+contacta a [@iagopombo](https://github.com/iagopombo) antes de usarlo así.

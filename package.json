@@ -2,6 +2,7 @@
   "name": "agent-forge",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
   "description": "Un equipo de agentes que convierte una idea en una aplicacion completa.",
   "scripts": {
     "install:all": "npm --prefix server install && npm --prefix web install",
