@@ -1,66 +1,63 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api } from './api';
-import { AskPanel } from './components/AskPanel';
-import { ConsolePanel } from './components/ConsolePanel';
-import { FilesPanel } from './components/FilesPanel';
-import { NewRunForm } from './components/NewRunForm';
-import { TeamFlow } from './components/TeamFlow';
-import { Sidebar } from './components/Sidebar';
-import { Transcript } from './components/Transcript';
-import { activePhase, type RunState } from './state';
-import { PHASE_LABELS, PHASE_ORDER, type PhaseId } from './types';
-import { useConsole } from './useConsole';
-import { useForgeRun } from './useForgeRun';
+import { useEffect, useMemo, useState } from "react";
+import { api } from "./api";
+import { AskPanel } from "./components/AskPanel";
+import { ConsolePanel } from "./components/ConsolePanel";
+import { FilesPanel } from "./components/FilesPanel";
+import { NewRunForm } from "./components/NewRunForm";
+import { TeamFlow } from "./components/TeamFlow";
+import { Sidebar } from "./components/Sidebar";
+import { Transcript } from "./components/Transcript";
+import { activePhase, type RunState } from "./state";
+import { PHASE_LABELS, type PhaseId } from "./types";
+import { useConsole } from "./useConsole";
+import { useForgeRun } from "./useForgeRun";
 
-type Tab = 'team' | 'console';
+type Tab = "team" | "console";
 
 /** La ejecución abierta vive en el hash, para que recargar no la pierda. */
 function runIdFromHash(): string | null {
-  const id = window.location.hash.replace(/^#\/?/, '');
+  const id = window.location.hash.replace(/^#\/?/, "");
   return /^[A-Za-z0-9._-]+$/.test(id) ? id : null;
 }
 
 export function App() {
   const [runId, setRunId] = useState<string | null>(runIdFromHash);
   const [pinnedPhase, setPinnedPhase] = useState<PhaseId | null>(null);
-  const [tab, setTab] = useState<Tab>('team');
+  const [tab, setTab] = useState<Tab>("team");
   // Una vez abierta, la consola sigue conectada aunque se vuelva a la pestaña
   // del equipo: cambiar de pestaña no debe cortar un turno a medias.
   const [consoleOpened, setConsoleOpened] = useState(false);
-  const [keyMissing, setKeyMissing] = useState(false);
   const { state, connected, refresh } = useForgeRun(runId);
   const consoleRun = useConsole(runId, consoleOpened);
-
-  useEffect(() => {
-    api
-      .health()
-      .then((h) => setKeyMissing(!h.hasApiKey))
-      .catch(() => undefined);
-  }, []);
 
   // Atrás y adelante del navegador cambian de ejecución como cualquier otra web.
   useEffect(() => {
     const onHash = () => {
       setRunId(runIdFromHash());
       setPinnedPhase(null);
-      setTab('team');
+      setTab("team");
       setConsoleOpened(false);
     };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   // Follow the working agent unless the user has clicked a specific phase.
   const selected = pinnedPhase ?? activePhase(state);
   // En pausa la ejecución sigue viva (esperando cuota): se puede detener, pero
   // no retomar, y aún no ha fallado.
-  const running = state.status === 'running' || state.status === 'paused';
+  const running = state.status === "running" || state.status === "paused";
 
-  // Una ejecución cortada a medias se puede continuar desde la primera fase que
-  // no llegó a terminar, reutilizando el workspace en vez de empezar de cero.
+  // Una ejecución cortada a medias se puede continuar reutilizando el
+  // workspace. Retoma la fase que el usuario tenga seleccionada en TeamFlow
+  // (clicar un nodo decide desde dónde), no "la primera sin terminar": esa
+  // heurística automática podía apuntar a una fase que en realidad ya estaba
+  // resuelta en otro intento si el estado en memoria del navegador se había
+  // quedado mirando una ejecución vieja — ver `resolveWorkspace` en
+  // server/src/runs.ts para el caso real que lo motivó.
   const resumeFrom =
-    state.status === 'failed' || state.status === 'stopped'
-      ? PHASE_ORDER.find((id) => state.phases[id].status !== 'done')
+    state.status === "failed" || state.status === "stopped"
+      ? selected
       : undefined;
 
   // Lo que han tocado los agentes y lo que ha tocado la consola, en un solo
@@ -68,18 +65,19 @@ export function App() {
   // de tamaño con cada escritura, para saber cuándo releer el árbol.
   const touchedFiles = useMemo(() => {
     const merged = new Map<string, unknown>(state.files);
-    for (const [path, action] of consoleRun.state.files) merged.set(path, action);
+    for (const [path, action] of consoleRun.state.files)
+      merged.set(path, action);
     return merged;
   }, [state.files, consoleRun.state.files]);
 
   const openRun = (id: string | null) => {
     // Escribir el hash dispara `hashchange`, que es quien actualiza el estado.
     // Si ya estamos en ese hash el evento no llega, así que se fija a mano.
-    const next = id ? `#/${id}` : '#/';
+    const next = id ? `#/${id}` : "#/";
     if (window.location.hash === next) {
       setRunId(id);
       setPinnedPhase(null);
-      setTab('team');
+      setTab("team");
       setConsoleOpened(false);
     } else {
       window.location.hash = next;
@@ -88,7 +86,7 @@ export function App() {
 
   const openConsole = () => {
     setConsoleOpened(true);
-    setTab('console');
+    setTab("console");
   };
 
   return (
@@ -96,63 +94,84 @@ export function App() {
       <Sidebar currentId={runId} onSelect={openRun} revision={state.lastSeq} />
 
       <main className="main">
-        {keyMissing && (
-          <div className="banner is-warn">
-            Sin <code>ANTHROPIC_API_KEY</code>: los agentes usarán la sesión de Claude Code y
-            consumirán tu cuota de suscripción, no dólares por token.
-          </div>
-        )}
-
         {!runId && <NewRunForm onCreated={openRun} />}
 
         {runId && (
           <>
             <header className="run-head">
               <div className="run-head-main">
-                <p className="run-head-idea">{state.idea || 'Cargando…'}</p>
+                <p className="run-head-idea">{state.idea || "Cargando…"}</p>
                 <p className="run-head-path">{state.workspace}</p>
               </div>
               <div className="run-head-stats">
-                <Stat label="Estado" value={statusLabel(state.status, connected)} />
-                <Stat label="Coste est." value={`$${state.costUsd.toFixed(2)}`} />
+                <Stat
+                  label="Estado"
+                  value={statusLabel(state.status, connected)}
+                />
+                <Stat
+                  label="Coste est."
+                  value={`$${state.costUsd.toFixed(2)}`}
+                />
                 <Stat label="Archivos" value={String(state.files.size)} />
-                <Stat label="Tiempo" value={elapsed(state.startedAt, state.endedAt)} />
-                {running && <StopButton runId={runId} connected={connected} onStopped={refresh} />}
+                <Stat
+                  label="Tiempo"
+                  value={elapsed(state.startedAt, state.endedAt)}
+                />
+                {running && (
+                  <StopButton
+                    runId={runId}
+                    connected={connected}
+                    onStopped={refresh}
+                  />
+                )}
                 {!running && resumeFrom && (
-                  <ResumeButton runId={runId} state={state} from={resumeFrom} onCreated={openRun} />
+                  <ResumeButton
+                    runId={runId}
+                    state={state}
+                    from={resumeFrom}
+                    onCreated={openRun}
+                  />
                 )}
               </div>
             </header>
 
-            <TeamFlow phases={state.phases} selected={selected} onSelect={setPinnedPhase} />
+            <TeamFlow
+              phases={state.phases}
+              selected={selected}
+              onSelect={setPinnedPhase}
+            />
 
             {state.pause && <PauseBanner pause={state.pause} />}
 
-            {state.pendingAsk && <AskPanel runId={runId} ask={state.pendingAsk} />}
+            {state.pendingAsk && (
+              <AskPanel runId={runId} ask={state.pendingAsk} />
+            )}
 
-            {state.reviews.length > 0 && <ReviewBanner review={state.reviews[state.reviews.length - 1]!} />}
+            {state.reviews.length > 0 && (
+              <ReviewBanner review={state.reviews[state.reviews.length - 1]!} />
+            )}
 
             <div className="tabs" role="tablist">
               <button
                 type="button"
                 role="tab"
-                aria-selected={tab === 'team'}
-                className={`tab ${tab === 'team' ? 'is-active' : ''}`}
-                onClick={() => setTab('team')}
+                aria-selected={tab === "team"}
+                className={`tab ${tab === "team" ? "is-active" : ""}`}
+                onClick={() => setTab("team")}
               >
                 Trabajo del equipo
               </button>
               <button
                 type="button"
                 role="tab"
-                aria-selected={tab === 'console'}
-                className={`tab ${tab === 'console' ? 'is-active' : ''}`}
+                aria-selected={tab === "console"}
+                className={`tab ${tab === "console" ? "is-active" : ""}`}
                 disabled={running}
                 onClick={openConsole}
                 title={
                   running
-                    ? 'Disponible cuando el equipo termine: mientras construyen, dos agentes escribiendo el mismo workspace se pisan.'
-                    : 'Sigue mejorando esta aplicación con Claude Code sobre el mismo workspace'
+                    ? "Disponible cuando el equipo termine: mientras construyen, dos agentes escribiendo el mismo workspace se pisan."
+                    : "Sigue mejorando esta aplicación con Claude Code sobre el mismo workspace"
                 }
               >
                 Consola
@@ -160,8 +179,10 @@ export function App() {
               </button>
             </div>
 
-            <div className={`workspace ${tab === 'console' ? 'is-console' : ''}`}>
-              {tab === 'console' ? (
+            <div
+              className={`workspace ${tab === "console" ? "is-console" : ""}`}
+            >
+              {tab === "console" ? (
                 <ConsolePanel
                   runId={runId}
                   state={consoleRun.state}
@@ -205,11 +226,11 @@ function StopButton({
   onStopped: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const stop = async () => {
     setBusy(true);
-    setError('');
+    setError("");
     try {
       await api.stopRun(runId);
       // Con el stream vivo, el propio `run.end` actualiza la pantalla. Si ya
@@ -217,7 +238,7 @@ function StopButton({
       // el cambio sólo está en disco: hay que releerlo.
       if (!connected) onStopped();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo detener.');
+      setError(err instanceof Error ? err.message : "No se pudo detener.");
     } finally {
       setBusy(false);
     }
@@ -229,9 +250,9 @@ function StopButton({
       className="stop"
       disabled={busy}
       onClick={() => void stop()}
-      title={error || 'Corta la fase en curso y cierra los procesos del agente'}
+      title={error || "Corta la fase en curso y cierra los procesos del agente"}
     >
-      {busy ? 'Deteniendo…' : error ? 'Detener (reintentar)' : 'Detener'}
+      {busy ? "Deteniendo…" : error ? "Detener (reintentar)" : "Detener"}
     </button>
   );
 }
@@ -248,15 +269,15 @@ function ResumeButton({
   onCreated: (id: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
   const resume = async () => {
     setBusy(true);
-    setError('');
+    setError("");
     try {
       const run = await api.createRun({
         idea: state.idea,
-        language: 'español',
+        language: "español",
         maxReviewRounds: 1,
         maxBudgetUsd: 25,
         resumeOf: runId,
@@ -264,7 +285,7 @@ function ResumeButton({
       });
       onCreated(run.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo retomar.');
+      setError(err instanceof Error ? err.message : "No se pudo retomar.");
       setBusy(false);
     }
   };
@@ -275,9 +296,12 @@ function ResumeButton({
       className="resume"
       disabled={busy}
       onClick={() => void resume()}
-      title={error || `Continúa en el mismo workspace desde la fase "${PHASE_LABELS[from]}"`}
+      title={
+        error ||
+        `Continúa en el mismo workspace desde la fase "${PHASE_LABELS[from]}"`
+      }
     >
-      {busy ? 'Retomando…' : `Retomar en ${PHASE_LABELS[from]}`}
+      {busy ? "Retomando…" : `Retomar en ${PHASE_LABELS[from]}`}
     </button>
   );
 }
@@ -291,12 +315,17 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ReviewBanner({ review }: { review: { verdict: string; blockers: string[]; round: number } }) {
-  const pass = review.verdict === 'pass';
+function ReviewBanner({
+  review,
+}: {
+  review: { verdict: string; blockers: string[]; round: number };
+}) {
+  const pass = review.verdict === "pass";
   return (
-    <div className={`banner ${pass ? 'is-ok' : 'is-warn'}`}>
+    <div className={`banner ${pass ? "is-ok" : "is-warn"}`}>
       <strong>
-        Revisión {review.round}: {pass ? 'aprobada' : `${review.blockers.length} bloqueante(s)`}
+        Revisión {review.round}:{" "}
+        {pass ? "aprobada" : `${review.blockers.length} bloqueante(s)`}
       </strong>
       {!pass && (
         <ul>
@@ -310,30 +339,37 @@ function ReviewBanner({ review }: { review: { verdict: string; blockers: string[
 }
 
 function statusLabel(status: string, connected: boolean): string {
-  if (status === 'running') return connected ? 'en curso' : 'reconectando…';
-  if (status === 'paused') return 'en pausa';
-  if (status === 'done') return 'terminada';
-  if (status === 'failed') return 'fallida';
-  if (status === 'stopped') return 'detenida';
-  return 'en cola';
+  if (status === "running") return connected ? "en curso" : "reconectando…";
+  if (status === "paused") return "en pausa";
+  if (status === "done") return "terminada";
+  if (status === "failed") return "fallida";
+  if (status === "stopped") return "detenida";
+  return "en cola";
 }
 
-function PauseBanner({ pause }: { pause: { reason: string; resumeAt: number | null } }) {
+function PauseBanner({
+  pause,
+}: {
+  pause: { reason: string; resumeAt: number | null };
+}) {
   const when = pause.resumeAt
-    ? new Date(pause.resumeAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    ? new Date(pause.resumeAt).toLocaleTimeString(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
     : null;
   return (
     <div className="banner is-warn">
-      <strong>Sin cuota — en pausa.</strong>{' '}
+      <strong>Sin cuota — en pausa.</strong>{" "}
       {when
         ? `La ejecución se reanudará sola cuando vuelva la cuota, hacia las ${when}. Puedes cerrar el navegador.`
-        : 'La ejecución se reanudará sola en cuanto vuelva la cuota. Puedes cerrar el navegador.'}
+        : "La ejecución se reanudará sola en cuanto vuelva la cuota. Puedes cerrar el navegador."}
     </div>
   );
 }
 
 function elapsed(from: number, to: number): string {
-  if (!from) return '—';
+  if (!from) return "—";
   const ms = (to || Date.now()) - from;
   const minutes = Math.floor(ms / 60000);
   const seconds = Math.floor((ms % 60000) / 1000);
