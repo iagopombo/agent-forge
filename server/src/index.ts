@@ -50,20 +50,16 @@ app.post("/api/runs", (req, res) => {
     const workspace =
       runs.resolveWorkspace(slug) ?? path.join(CONFIG.workspacesRoot, slug);
     if (!fs.existsSync(workspace)) {
-      res
-        .status(400)
-        .json({
-          error: "No existe el workspace de la ejecución que quieres retomar.",
-        });
+      res.status(400).json({
+        error: "No existe el workspace de la ejecución que quieres retomar.",
+      });
       return;
     }
     const phase = String(req.body?.startFrom ?? "");
     if (!(phase in ROLES)) {
-      res
-        .status(400)
-        .json({
-          error: `startFrom debe ser una de: ${Object.keys(ROLES).join(", ")}.`,
-        });
+      res.status(400).json({
+        error: `startFrom debe ser una de: ${Object.keys(ROLES).join(", ")}.`,
+      });
       return;
     }
     startFrom = phase as PhaseId;
@@ -290,6 +286,50 @@ app.get("/api/runs/:id/file", async (req, res) => {
   }
   res.json(file);
 });
+
+// ── Internal bridge endpoints (for OpenCode MCP integration) ────────────
+
+/**
+ * /internal/ask — Proxy para preguntar_al_usuario.
+ * OpenCode llama a este endpoint cuando necesita una decisión del usuario.
+ * El orchestrator maneja la interacción real vía SSE events.
+ */
+app.post("/internal/ask", express.json(), (req, res) => {
+  const { validateAskRequest } = require("./ask.js");
+  const error = validateAskRequest(req.body);
+  if (error) {
+    res.status(400).json({ error });
+    return;
+  }
+  // The actual handling happens via the orchestrator's permission system.
+  // This endpoint just validates the request format.
+  res.json({
+    ok: true,
+    message: "Use the orchestrator's askUser method instead.",
+  });
+});
+
+/**
+ * /internal/design — Proxy para mostrar_diseno.
+ * OpenCode llama a este endpoint cuando necesita enseñar un diseño al usuario.
+ */
+app.post("/internal/design", express.json(), async (req, res) => {
+  const { validateDesignRequest, captureDesign } = require("./design.js");
+  const error = validateDesignRequest(req.body);
+  if (error) {
+    res.status(400).json({ error });
+    return;
+  }
+  const { workspace, archivo_html } = req.body;
+  const result = await captureDesign(workspace, archivo_html);
+  if (!result.ok) {
+    res.status(422).json({ error: result.error });
+    return;
+  }
+  res.json({ ok: true, image: result.image });
+});
+
+// ── End internal bridge ─────────────────────────────────────────────────
 
 // Serve the built UI when it exists; in development Vite serves it instead.
 if (fs.existsSync(CONFIG.webDist)) {
