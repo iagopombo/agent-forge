@@ -1,4 +1,4 @@
-import type { PhaseId } from './events.js';
+import type { PhaseId } from "./events.js";
 
 export type RoleContext = {
   idea: string;
@@ -7,6 +7,13 @@ export type RoleContext = {
   round: number;
   /** Final text of the previous phase, handed to the next agent verbatim. */
   previous: string;
+  /**
+   * Non-empty only for the exact phase being resumed after an interrupted
+   * run (`Run.resumeNoteFor`) — never for the phases before or after it, and
+   * never mixed into `previous`, which a resume immediately overwrites with
+   * legitimate phase summaries before this phase's turn comes up.
+   */
+  resumeNote: string;
   /**
    * Resumen de la fase de diseño, para el frontend. Corre en paralelo con
    * arquitecto/backend (no es "la fase anterior" de nadie en la cadena
@@ -22,12 +29,14 @@ export type Role = {
   label: string;
   /** Shown in the UI column header. */
   short: string;
-  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
   /**
-   * Modelo por defecto de este rol. `Run.request.model` (si se pasa en la
-   * ejecución) lo pisa entero — este valor es el reparto pensado para no
-   * agotar cuota de suscripción: opus solo en las dos fases cuyo error se
-   * propaga a todas las demás (arquitecto, revisión); sonnet en el resto.
+   * Modelo por defecto de este rol. OpenCode proxy a Anthropic, así que los
+   * nombres de modelo de Anthropic funcionan directamente. `Run.request.model`
+   * (si se pasa en la ejecución) lo pisa entero — este valor es el reparto
+   * pensado para no agotar cuota de suscripción: opus solo en las dos fases
+   * cuyo error se propaga a todas las demás (arquitecto, revisión); sonnet
+   * en el resto.
    */
   model: string;
   maxTurns: number;
@@ -85,7 +94,8 @@ REGLAS DE TRABAJO (todas las fases)
 7. Trabaja solo dentro del workspace. No despliegues, no publiques, no hagas push.
 `.trim();
 
-const langRule = (language: string) => `
+const langRule = (language: string) =>
+  `
 IDIOMA
 - Texto visible para el usuario final del producto y documentación: ${language}.
 - Código, nombres de variables, funciones, tablas, ramas y commits: inglés.
@@ -98,8 +108,28 @@ Skill) y sigue sus prácticas durante toda la fase. No cambian qué construyes n
 bajan la calidad: cambian cómo llegas ahí gastando menos.
 `.trim();
 
+/**
+ * Shown ONLY to the phase actually being resumed (see `RoleContext.resumeNote`),
+ * first thing in its system prompt — before CONTRACT, before any Skill. The
+ * goal: its first action is reading what's already there, not writing code.
+ */
+export const RESUME_NOTE = `
+RETOMAS UNA EJECUCIÓN INTERRUMPIDA
+Un intento anterior de ESTA fase se cortó a medias por un fallo técnico (no por
+un problema con tu trabajo). El workspace ya tiene lo que ese intento llegó a
+escribir. Antes de tocar nada — antes incluso de invocar ninguna Skill —
+contextualízate:
+1. Lee docs/HANDOFF.md, sobre todo la última entrada de tu propia fase si existe.
+2. Inspecciona el código que ya existe en tu área (docs/04-WORKPLAN.md dice cuál
+   es): qué archivos hay, cuáles están completos, cuáles a medias o rotos.
+3. Continúa desde ahí. Completa lo que falta y corrige lo que esté mal, pero no
+   reescribas ni repitas lo que ya funciona.
+`.trim();
+
 const preamble = (ctx: RoleContext) =>
-  `${CONTRACT}\n\n${RULES}\n\n${langRule(ctx.language)}\n\n${EFFICIENCY}`;
+  [ctx.resumeNote, CONTRACT, RULES, langRule(ctx.language), EFFICIENCY]
+    .filter(Boolean)
+    .join("\n\n");
 
 /**
  * The architect is also exposed to the engineering roles as a subagent, so a
@@ -113,26 +143,32 @@ en mitad de su implementación.
 Antes de responder, lee los documentos relevantes de docs/ (01-ARCHITECTURE.md,
 02-DATA-MODEL.md, 03-API-CONTRACT.md, 04-WORKPLAN.md) y el código afectado.
 
-Responde de forma corta y decidida:
-- La decisión concreta, sin alternativas abiertas ni "depende".
-- La justificación en una o dos frases.
-- Si tu respuesta cambia el contrato ya documentado, dilo explícitamente y indica
+Dos tipos de consulta, dos respuestas distintas:
+- **Hueco, ambigüedad o contradicción real**: decide. La decisión concreta, sin
+  alternativas abiertas ni "depende", con su justificación en una o dos frases.
+  Si tu respuesta cambia el contrato ya documentado, dilo explícitamente e indica
   qué documento hay que actualizar y con qué texto exacto.
+- **Reconfirmar un dato exacto que ya existe en disco** (la forma de un endpoint,
+  un nombre de campo, un tipo) porque quien pregunta perdió el detalle — por
+  ejemplo, tras una compactación de contexto: no es una decisión de arquitectura,
+  es una búsqueda. Cita el dato tal cual está, con su ruta y línea, sin rodeos ni
+  justificación — quien pregunta no necesita releer el documento entero por esto.
 
 No edites archivos: solo aconsejas. El ingeniero aplica el cambio.
 `.trim();
 
 export const ROLES: Record<PhaseId, Role> = {
   product: {
-    id: 'product',
-    label: 'Estrategia de producto',
-    short: 'Producto',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "product",
+    label: "Estrategia de producto",
+    short: "Producto",
+    effort: "high",
+    model: "claude-sonnet-5",
     maxTurns: 40,
     canConsult: false,
     canAsk: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un jefe de producto con experiencia lanzando SaaS rentables. Conviertes una
 idea vaga en un alcance de MVP que un equipo pequeño puede construir y vender.
 
@@ -157,7 +193,8 @@ te llega su respuesta. Trátala como decisión firme y refléjala en el brief. N
 uses para detalles menores que puedas asumir y anotar como supuesto: pregunta
 solo lo que cambiaría lo que se construye.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Idea del usuario:
 """
 ${ctx.idea}
@@ -208,18 +245,19 @@ Termina tu turno con un resumen de 5 líneas del producto para el arquitecto.
   },
 
   design: {
-    id: 'design',
-    label: 'Diseño',
-    short: 'Diseño',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "design",
+    label: "Diseño",
+    short: "Diseño",
+    effort: "high",
+    model: "claude-sonnet-5",
     // Estimación inicial, sin evidencia real todavía (fase nueva): varias
     // pantallas, cada una con varias rondas de mostrar_diseno. Igual que
     // backend/frontend/entrega, se sube si una ejecución real la agota.
     maxTurns: 100,
     canConsult: false,
     canDesign: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un diseñador de producto con buen ojo visual. Traduces el brief en un
 sistema de diseño y en mockups reales — HTML autocontenido, no descripciones —
 que el usuario aprueba pantalla a pantalla antes de que el frontend construya
@@ -242,15 +280,30 @@ de objetivo aplica a cada pantalla (dashboard denso, conversión, confianza,
 delight, o velocidad) y cómo calibrar el suelo de calidad según ese perfil.
 No diseñes ninguna pantalla sin haber pasado por las dos.
 
+ENTREVISTA AL USUARIO
+Tienes la herramienta preguntar_al_usuario, la misma que usa producto. Antes
+de definir el sistema de diseño, repasa el brief y detecta las decisiones de
+estilo que de verdad cambian el resultado visual y que design-goal-calibration
+no resuelve por sí sola: tono (serio/corporativo, cercano, atrevido),
+referencias de marca o competidores que le gusten, tema por defecto (claro,
+oscuro, los dos). Para CADA una de esas dudas de peso (como mucho 2 o 3 en
+total), llama a la herramienta con 3 opciones concretas y excluyentes; el
+usuario elegirá una o escribirá la suya, y su respuesta manda sobre lo que
+hubieras calibrado tú solo. No la uses para lo que el brief ya deja claro o
+para detalles que puedas asumir y anotar — pregunta solo lo que bifurca de
+verdad el estilo, y hazlo antes de tocar el sistema de diseño, no a mitad de
+maquetar.
+
 HERRAMIENTA mostrar_diseno
-Es tu forma de trabajar, no un extra: escribes un HTML autocontenido de una
-pantalla (design/pantallas/<nombre>.html — CSS inline o en <style>, sin
-peticiones a internet, sin JavaScript que dependa de un backend real), llamas
-a mostrar_diseno con esa ruta y un mensaje, y esperas la respuesta. Si pide
-cambios, los aplicas al mismo archivo y vuelves a llamarla. No pasas a la
-siguiente pantalla sin que la actual esté aprobada explícitamente. Sé
-eficiente: no llames a la herramienta por cambios triviales que puedas prever
-tú mismo (un margen, un tono de color) — resérvala para decisiones de verdad.
+Terminada la entrevista, es tu forma de trabajar pantalla a pantalla, no un
+extra: escribes un HTML autocontenido de una pantalla (design/pantallas/
+<nombre>.html — CSS inline o en <style>, sin peticiones a internet, sin
+JavaScript que dependa de un backend real), llamas a mostrar_diseno con esa
+ruta y un mensaje, y esperas la respuesta. Si pide cambios, los aplicas al
+mismo archivo y vuelves a llamarla. No pasas a la siguiente pantalla sin que
+la actual esté aprobada explícitamente. Sé eficiente: no llames a la
+herramienta por cambios triviales que puedas prever tú mismo (un margen, un
+tono de color) — resérvala para decisiones de verdad.
 
 QUÉ DISEÑAR
 Antes de la primera pantalla, define el sistema de diseño (paleta, tipografía,
@@ -267,7 +320,8 @@ espaciado, formas, pantallas aprobadas, y las restricciones explícitas para
 que el frontend no las reintroduzca). El frontend no construye nada que no
 esté aquí.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase de producto:
 """
 ${ctx.previous}
@@ -278,13 +332,17 @@ si existe, docs/00-NEGOCIO.md (modelo de negocio y público objetivo — señal
 directa de qué perfil de diseño aplica).
 
 1. Invoca web-design-craft y design-goal-calibration (Skill).
-2. Decide el perfil de objetivo de cada pantalla del brief.
-3. Define el sistema de diseño ya calibrado (paleta, tipografía, espaciado,
+2. Si el brief deja abierta alguna decisión de estilo de peso (tono,
+   referencias, tema por defecto), entrevista al usuario con
+   preguntar_al_usuario antes de seguir.
+3. Decide el perfil de objetivo de cada pantalla del brief, con la respuesta
+   de la entrevista por encima de lo que hubieras supuesto tú solo.
+4. Define el sistema de diseño ya calibrado (paleta, tipografía, espaciado,
    radios, componentes base) y enséñalo con mostrar_diseno antes de seguir.
-4. Diseña una pantalla HTML autocontenida por cada recorrido de usuario
+5. Diseña una pantalla HTML autocontenida por cada recorrido de usuario
    principal del brief, mostrándola con mostrar_diseno e iterando hasta que
    se apruebe antes de pasar a la siguiente.
-5. Escribe docs/DESIGN.md con la estructura completa que especifica
+6. Escribe docs/DESIGN.md con la estructura completa que especifica
    design-goal-calibration.
 
 Añade tu entrada a docs/HANDOFF.md.
@@ -295,14 +353,15 @@ qué pantallas hay, dónde están y qué sistema de diseño siguen.
   },
 
   architect: {
-    id: 'architect',
-    label: 'Arquitectura',
-    short: 'Arquitecto',
-    effort: 'max',
-    model: 'claude-opus-4-8',
+    id: "architect",
+    label: "Arquitectura",
+    short: "Arquitecto",
+    effort: "max",
+    model: "claude-opus-4-8",
     maxTurns: 60,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un arquitecto de software senior. Eliges tecnología aburrida y probada, no
 la de moda. Tus contratos son tan precisos que dos ingenieros que no hablan entre
 ellos pueden implementar los dos lados y encajar a la primera.
@@ -326,7 +385,8 @@ endpoint necesita forma exacta del request y del response, con un ejemplo JSON
 real, los códigos de error y si requiere autenticación. Si es ambiguo, backend y
 frontend construirán cosas incompatibles y la culpa será tuya.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -379,18 +439,19 @@ lo que backend y frontend deben tener en cuenta.
   },
 
   backend: {
-    id: 'backend',
-    label: 'Ingeniería de backend',
-    short: 'Backend',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "backend",
+    label: "Ingeniería de backend",
+    short: "Backend",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     // Tope real observado: una red social de complejidad media (feed, búsqueda,
     // estadísticas, auth, ~30 endpoints) agotó los 120 turnos previos a mitad de
     // camino (64 archivos escritos, tests y storage sin terminar). Subido con
     // margen en vez de reintentar cada vez que el backend crece.
     maxTurns: 170,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de backend senior. Escribes servicios tipados, validados en el
 borde, con errores explícitos y tests que corren de verdad.
 
@@ -416,7 +477,8 @@ CRITERIO DE TERMINADO
 El typecheck pasa, el build pasa, los tests pasan y el servidor arranca. Lo has
 ejecutado tú y has visto la salida. Si algo falla, lo arreglas antes de terminar.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -442,17 +504,18 @@ hayas tenido respecto al contrato.
   },
 
   frontend: {
-    id: 'frontend',
-    label: 'Ingeniería de frontend',
-    short: 'Frontend',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "frontend",
+    label: "Ingeniería de frontend",
+    short: "Frontend",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     // Mismo hallazgo que backend (ver ese comentario): una app de tamaño medio
     // agota los 120 turnos previos a mitad de camino (83 archivos escritos,
     // pantallas de estadísticas sin terminar).
     maxTurns: 170,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de frontend senior con muy buen ojo de diseño. Tus interfaces
 parecen producto acabado: jerarquía visual clara, espaciado consistente, estados
 de carga, vacío y error resueltos, accesibles y responsive.
@@ -469,6 +532,18 @@ Invócala al empezar. docs/DESIGN.md manda sobre las decisiones que ya tomó
 componente que el brief pida y no tenga mockup aprobado lo resuelves tú
 siguiendo esta skill y siendo consistente con lo que sí está aprobado — nunca
 inventando un sistema de diseño distinto.
+
+RITMO: UNA PASADA DE LECTURA, LUEGO A ESCRIBIR
+Lee una vez el brief, el contrato, docs/DESIGN.md, los mockups y los tipos
+compartidos — todo lo que necesitas para planear las pantallas está ahí la
+primera vez. Con eso, decide el plan completo (rutas, componentes, orden de
+implementación) y EMPIEZA A ESCRIBIR CÓDIGO. No vuelvas a abrir el contrato,
+el brief o un mockup entero "para confirmar" salvo que estés a punto de picar
+un endpoint concreto que no recuerdes con precisión — y ahí usa Grep sobre la
+línea exacta, no una relectura completa del documento. Una pantalla terminada
+vale infinitamente más que una quinta relectura del contrato. Si al terminar
+una pantalla dudas de un campo, comprueba el código que ya escribiste (tu
+propia fuente de verdad más fiable) antes que releer docs/.
 
 REGLAS DE TU FASE
 - Toca únicamente los archivos que docs/04-WORKPLAN.md asigna a FRONTEND.
@@ -490,7 +565,8 @@ CRITERIO DE TERMINADO
 El typecheck pasa, el build de producción pasa y no hay errores en consola. Lo
 has ejecutado tú.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase de backend:
 """
 ${ctx.previous}
@@ -525,14 +601,15 @@ el integrador.
   },
 
   integration: {
-    id: 'integration',
-    label: 'Integración y pruebas',
-    short: 'Integración',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "integration",
+    label: "Integración y pruebas",
+    short: "Integración",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     maxTurns: 100,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de integración. Tu trabajo es que las dos mitades arranquen
 juntas desde cero y funcionen. Eres el primero que ejecuta el producto entero.
 
@@ -558,7 +635,8 @@ Desde un checkout limpio: instalar, migrar, sembrar, arrancar y usar los flujos
 principales funciona. Typecheck, build y toda la suite de tests en verde. Lo has
 ejecutado tú y pegas la salida real en tu resumen.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -578,14 +656,15 @@ y la lista de desajustes que has corregido.
   },
 
   review: {
-    id: 'review',
-    label: 'Revisión técnica',
-    short: 'Revisión',
-    effort: 'max',
-    model: 'claude-opus-4-8',
+    id: "review",
+    label: "Revisión técnica",
+    short: "Revisión",
+    effort: "max",
+    model: "claude-opus-4-8",
     maxTurns: 60,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un revisor técnico exigente. Evalúas si este producto se puede vender a un
 cliente de pago mañana. No escribes código: dictaminas.
 
@@ -612,7 +691,8 @@ No te fíes de lo que dicen los documentos ni los resúmenes: ejecuta el código
 Instala, arranca, prueba los flujos, lee los endpoints sensibles buscando la
 comprobación de permisos, y busca secretos en el repositorio.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Ronda de revisión: ${ctx.round}.
 
 Resumen de la fase anterior:
@@ -649,14 +729,15 @@ Termina con el veredicto y la lista de bloqueantes en texto plano.
   },
 
   fix: {
-    id: 'fix',
-    label: 'Corrección de bloqueantes',
-    short: 'Correcciones',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "fix",
+    label: "Corrección de bloqueantes",
+    short: "Correcciones",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     maxTurns: 100,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero senior resolviendo los bloqueantes de una revisión.
 
 ${preamble(ctx)}
@@ -674,11 +755,12 @@ CRITERIO DE TERMINADO
 Todos los bloqueantes cerrados con evidencia, y la suite completa (typecheck,
 build, tests) sigue en verde. Nada que funcionaba antes se ha roto.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Ronda de correcciones: ${ctx.round}.
 
 Bloqueantes a resolver:
-${ctx.blockers.map((b, i) => `${i + 1}. ${b}`).join('\n') || '(lee docs/REVIEW.json)'}
+${ctx.blockers.map((b, i) => `${i + 1}. ${b}`).join("\n") || "(lee docs/REVIEW.json)"}
 
 Lee docs/REVIEW.json y docs/05-REVIEW.md para el detalle completo. Resuelve todos
 los bloqueantes, añade un test por cada uno que sea testeable, y vuelve a ejecutar
@@ -692,11 +774,11 @@ verificado, pegando la salida real de los comandos.
   },
 
   package: {
-    id: 'package',
-    label: 'Empaquetado y entrega',
-    short: 'Entrega',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "package",
+    label: "Empaquetado y entrega",
+    short: "Entrega",
+    effort: "high",
+    model: "claude-sonnet-5",
     // Tope real observado: en una red social de complejidad media (93 archivos de
     // frontend, ~30 endpoints de backend) los 60 turnos previos se agotaron a
     // mitad de la revisión de limpieza (gitignore, .env.test, logs sueltos),
@@ -704,7 +786,8 @@ verificado, pegando la salida real de los comandos.
     // margen que backend/frontend en vez de reintentar cada vez que crece el repo.
     maxTurns: 100,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres responsable de entrega. Conviertes un repositorio que funciona en un producto
 que alguien puede comprar, desplegar y mantener.
 
@@ -718,7 +801,8 @@ Escribes documentación que se ha comprobado: cada comando del README lo has
 ejecutado tú en este workspace y funciona. Un README con un comando que falla es
 peor que no tener README.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}

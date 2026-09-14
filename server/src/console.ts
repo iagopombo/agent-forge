@@ -38,7 +38,10 @@ export type ConsoleEvent = Base &
     | { t: "log"; level: "info" | "warn" | "error"; msg: string }
   );
 
-/** Modelo por defecto de la consola. */
+/**
+ * Modelo por defecto de la consola. OpenCode proxy a Anthropic,
+ * así que los nombres de modelo de Anthropic funcionan directamente.
+ */
 const CONSOLE_MODEL = "claude-sonnet-5";
 
 const SYSTEM_APPEND = [
