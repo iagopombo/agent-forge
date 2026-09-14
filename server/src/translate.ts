@@ -75,7 +75,7 @@ type Part = {
 export function translatePartUpdated(
   part: Part,
   delta: string | undefined,
-  phase: PhaseId,
+  phase: string,
   workspace: string
 ): Array<{ t: string; [key: string]: unknown }> {
   const events: Array<{ t: string; [key: string]: unknown }> = [];
@@ -207,9 +207,7 @@ export function extractErrorMessage(event: OpencodeEvent): string | null {
  * Convierte session.status de OpenCode en eventos ForgeEvent.
  * Usado internamente; el orquestador decide qué hacer con idle/busy/retry.
  */
-export function translateSessionStatus(
-  event: OpencodeEvent
-): {
+export function translateSessionStatus(event: OpencodeEvent): {
   status: "idle" | "busy" | "retry";
   retryAttempt?: number;
   retryNext?: number;
@@ -243,8 +241,8 @@ export function translateSessionStatus(
  */
 export function translatePermissionDenied(
   event: OpencodeEvent,
-  phase: PhaseId
-): { t: "denied"; phase: PhaseId; name: string; reason: string } | null {
+  phase: string
+): { t: "denied"; phase: string; name: string; reason: string } | null {
   if (event.type !== "permission.updated") return null;
   const perm = event.properties as any;
   if (!perm) return null;
@@ -265,7 +263,7 @@ export function translatePermissionDenied(
  */
 export function translateEvents(
   events: OpencodeEvent[],
-  phase: PhaseId,
+  phase: string,
   workspace: string
 ): Array<{ t: string; [key: string]: unknown }> {
   const result: Array<{ t: string; [key: string]: unknown }> = [];
