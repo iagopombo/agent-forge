@@ -1,12 +1,30 @@
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { CONFIG } from './config.js';
-import { EventLog, type Base } from './events.js';
-import { buildGuard, summarizeTool } from './guard.js';
-import { PIPELINE_TOOLS, SPAWN_ENV, TOKEN_EFFICIENCY_PLUGIN_PATH } from './orchestrator.js';
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
+import { CONFIG } from "./config.js";
+import { EventLog, type Base } from "./events.js";
+
+// TODO(fase6): migrar a OpenCode — consola con sesión persistente
+// Tipos/stubs temporales para que console.ts compile sin el SDK de Anthropic
+type Query = any;
+type SDKMessage = any;
+type SDKUserMessage = any;
+type Options = any;
+function query(_opts: any): any {
+  return (async function* () {})();
+}
+function buildGuard(
+  _cwd: string,
+  _denied: (n: string, r: string) => void
+): any {
+  return () => "allow";
+}
+function summarizeTool(_name: string, _input: any): string {
+  return "";
+}
+const SPAWN_ENV: Record<string, string | undefined> = {};
+const PIPELINE_TOOLS: string[] = [];
+const TOKEN_EFFICIENCY_PLUGIN_PATH = "";
 
 /**
  * Vocabulario de la consola. Se parece al del pipeline pero no lleva `phase`:
@@ -15,35 +33,35 @@ import { PIPELINE_TOOLS, SPAWN_ENV, TOKEN_EFFICIENCY_PLUGIN_PATH } from './orche
  */
 export type ConsoleEvent = Base &
   (
-    | { t: 'user'; text: string }
-    | { t: 'text'; delta: string; sub: boolean }
-    | { t: 'thinking'; delta: string; sub: boolean }
-    | { t: 'tool'; id: string; name: string; summary: string; sub: boolean }
-    | { t: 'file'; path: string; action: 'write' | 'edit' }
-    | { t: 'consult'; agent: string; question: string }
-    | { t: 'denied'; name: string; reason: string }
-    | { t: 'turn.start' }
-    | { t: 'turn.end'; ok: boolean; costUsd: number }
-    | { t: 'log'; level: 'info' | 'warn' | 'error'; msg: string }
+    | { t: "user"; text: string }
+    | { t: "text"; delta: string; sub: boolean }
+    | { t: "thinking"; delta: string; sub: boolean }
+    | { t: "tool"; id: string; name: string; summary: string; sub: boolean }
+    | { t: "file"; path: string; action: "write" | "edit" }
+    | { t: "consult"; agent: string; question: string }
+    | { t: "denied"; name: string; reason: string }
+    | { t: "turn.start" }
+    | { t: "turn.end"; ok: boolean; costUsd: number }
+    | { t: "log"; level: "info" | "warn" | "error"; msg: string }
   );
 
 /** Modelo por defecto de la consola: el mismo caballo de batalla del pipeline. */
-const CONSOLE_MODEL = 'claude-sonnet-5';
+const CONSOLE_MODEL = "claude-sonnet-5";
 
 const SYSTEM_APPEND = [
-  'Estás en la consola de Agent Forge, sobre el repositorio que un equipo de',
-  'agentes acaba de construir. El usuario te habla directamente para seguir',
-  'mejorando esta aplicación: trata cada mensaje como una petición de cambio',
-  'real sobre el código que tienes en el workspace.',
-  '',
-  'Trabaja como en una sesión normal de Claude Code: lee antes de tocar, haz el',
-  'cambio, y compruébalo (tests o build) cuando el cambio lo merezca.',
-  '',
-  'El repositorio lleva documentación en `docs/` escrita por los agentes que lo',
-  'construyeron (brief de producto, arquitectura, contrato de API). Si tu cambio',
-  'contradice algo de ahí, actualiza el documento en el mismo turno en vez de',
-  'dejar la documentación mintiendo.',
-].join('\n');
+  "Estás en la consola de Agent Forge, sobre el repositorio que un equipo de",
+  "agentes acaba de construir. El usuario te habla directamente para seguir",
+  "mejorando esta aplicación: trata cada mensaje como una petición de cambio",
+  "real sobre el código que tienes en el workspace.",
+  "",
+  "Trabaja como en una sesión normal de Claude Code: lee antes de tocar, haz el",
+  "cambio, y compruébalo (tests o build) cuando el cambio lo merezca.",
+  "",
+  "El repositorio lleva documentación en `docs/` escrita por los agentes que lo",
+  "construyeron (brief de producto, arquitectura, contrato de API). Si tu cambio",
+  "contradice algo de ahí, actualiza el documento en el mismo turno en vez de",
+  "dejar la documentación mintiendo.",
+].join("\n");
 
 /**
  * Una sesión de Claude Code viva sobre el workspace de una ejecución.
@@ -75,16 +93,18 @@ export class ConsoleSession {
   constructor(
     readonly runId: string,
     readonly workspace: string,
-    startSeq: number,
+    startSeq: number
   ) {
     this.log = new EventLog<ConsoleEvent>(CONFIG.eventBufferSize, startSeq);
-    this.stream = fs.createWriteStream(consolePath(runId), { flags: 'a' });
-    this.log.subscribe((event) => this.stream.write(`${JSON.stringify(event)}\n`));
+    this.stream = fs.createWriteStream(consolePath(runId), { flags: "a" });
+    this.log.subscribe((event) =>
+      this.stream.write(`${JSON.stringify(event)}\n`)
+    );
   }
 
   send(text: string): void {
     if (this.closed) return;
-    this.log.emit({ t: 'user', text });
+    this.log.emit({ t: "user", text });
     this.pending.push(text);
     this.wake?.();
     if (!this.active) void this.open();
@@ -104,11 +124,11 @@ export class ConsoleSession {
     this.pending.length = 0;
     this.wake?.();
     this.log.emit({
-      t: 'log',
-      level: 'warn',
-      msg: 'Turno interrumpido. El siguiente mensaje empieza una sesión nueva, sin memoria de la anterior.',
+      t: "log",
+      level: "warn",
+      msg: "Turno interrumpido. El siguiente mensaje empieza una sesión nueva, sin memoria de la anterior.",
     });
-    this.log.emit({ t: 'turn.end', ok: false, costUsd: 0 });
+    this.log.emit({ t: "turn.end", ok: false, costUsd: 0 });
   }
 
   close(): void {
@@ -131,8 +151,12 @@ export class ConsoleSession {
       }
       const text = this.pending.shift()!;
       this.busy = true;
-      this.log.emit({ t: 'turn.start' });
-      yield { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null };
+      this.log.emit({ t: "turn.start" });
+      yield {
+        type: "user",
+        message: { role: "user", content: text },
+        parent_tool_use_id: null,
+      };
     }
   }
 
@@ -140,31 +164,32 @@ export class ConsoleSession {
     const options: Options = {
       cwd: this.workspace,
       model: CONFIG.model ?? CONSOLE_MODEL,
-      effort: 'high',
-      permissionMode: 'default',
+      effort: "high",
+      permissionMode: "default",
       canUseTool: buildGuard(this.workspace, (name, reason) =>
-        this.log.emit({ t: 'denied', name, reason }),
+        this.log.emit({ t: "denied", name, reason })
       ),
       // Mismo aislamiento que las fases: ver SPAWN_ENV/PIPELINE_TOOLS en el
       // orquestador. La consola no es más de fiar que un agente por estar
       // pilotada por el usuario — corre en la misma máquina y con la misma cuenta.
       env: SPAWN_ENV,
       tools: PIPELINE_TOOLS,
-      thinking: { type: 'adaptive', display: 'summarized' },
+      thinking: { type: "adaptive", display: "summarized" },
       settingSources: [],
       persistSession: false,
       includePartialMessages: true,
       forwardSubagentText: true,
-      plugins: [{ type: 'local', path: TOKEN_EFFICIENCY_PLUGIN_PATH }],
+      plugins: [{ type: "local", path: TOKEN_EFFICIENCY_PLUGIN_PATH }],
       systemPrompt: {
-        type: 'preset',
-        preset: 'claude_code',
+        type: "preset",
+        preset: "claude_code",
         append: SYSTEM_APPEND,
         excludeDynamicSections: true,
       },
-      stderr: (data) => {
+      stderr: (data: string) => {
         const msg = data.trim();
-        if (msg) this.log.emit({ t: 'log', level: 'warn', msg: msg.slice(0, 500) });
+        if (msg)
+          this.log.emit({ t: "log", level: "warn", msg: msg.slice(0, 500) });
       },
     };
 
@@ -174,11 +199,11 @@ export class ConsoleSession {
     try {
       for await (const message of session) {
         this.consume(message);
-        if (message.type === 'result') {
+        if (message.type === "result") {
           this.busy = false;
           this.log.emit({
-            t: 'turn.end',
-            ok: message.subtype === 'success' && !message.is_error,
+            t: "turn.end",
+            ok: message.subtype === "success" && !message.is_error,
             costUsd: message.total_cost_usd ?? 0,
           });
         }
@@ -188,11 +213,11 @@ export class ConsoleSession {
       // y ya se ha informado al usuario, así que no se repite.
       if (this.active === session) {
         this.log.emit({
-          t: 'log',
-          level: 'error',
+          t: "log",
+          level: "error",
           msg: err instanceof Error ? err.message : String(err),
         });
-        this.log.emit({ t: 'turn.end', ok: false, costUsd: 0 });
+        this.log.emit({ t: "turn.end", ok: false, costUsd: 0 });
       }
     } finally {
       this.busy = false;
@@ -201,50 +226,54 @@ export class ConsoleSession {
   }
 
   private consume(message: SDKMessage): void {
-    if (message.type === 'stream_event') {
+    if (message.type === "stream_event") {
       const sub = message.parent_tool_use_id !== null;
       const event = message.event;
-      if (event.type !== 'content_block_delta') return;
+      if (event.type !== "content_block_delta") return;
       const delta = event.delta;
-      if (delta.type === 'text_delta' && delta.text) {
-        this.log.emit({ t: 'text', delta: delta.text, sub });
-      } else if (delta.type === 'thinking_delta' && delta.thinking) {
-        this.log.emit({ t: 'thinking', delta: delta.thinking, sub });
+      if (delta.type === "text_delta" && delta.text) {
+        this.log.emit({ t: "text", delta: delta.text, sub });
+      } else if (delta.type === "thinking_delta" && delta.thinking) {
+        this.log.emit({ t: "thinking", delta: delta.thinking, sub });
       }
       return;
     }
 
-    if (message.type !== 'assistant') return;
+    if (message.type !== "assistant") return;
 
     const sub = message.parent_tool_use_id !== null;
     for (const block of message.message.content) {
-      if (block.type !== 'tool_use') continue;
+      if (block.type !== "tool_use") continue;
       const input = (block.input ?? {}) as Record<string, unknown>;
 
       this.log.emit({
-        t: 'tool',
+        t: "tool",
         id: block.id,
         name: block.name,
         summary: summarizeTool(block.name, input),
         sub,
       });
 
-      if (block.name === 'Write' || block.name === 'Edit') {
+      if (block.name === "Write" || block.name === "Edit") {
         const file = input.file_path;
-        if (typeof file === 'string') {
+        if (typeof file === "string") {
           this.log.emit({
-            t: 'file',
-            path: path.relative(this.workspace, file).split(path.sep).join('/'),
-            action: block.name === 'Write' ? 'write' : 'edit',
+            t: "file",
+            path: path.relative(this.workspace, file).split(path.sep).join("/"),
+            action: block.name === "Write" ? "write" : "edit",
           });
         }
       }
 
-      if (block.name === 'Task') {
+      if (block.name === "Task") {
         this.log.emit({
-          t: 'consult',
-          agent: typeof input.subagent_type === 'string' ? input.subagent_type : 'subagente',
-          question: typeof input.description === 'string' ? input.description : '',
+          t: "consult",
+          agent:
+            typeof input.subagent_type === "string"
+              ? input.subagent_type
+              : "subagente",
+          question:
+            typeof input.description === "string" ? input.description : "",
         });
       }
     }
@@ -256,11 +285,14 @@ function consolePath(runId: string): string {
 }
 
 /** Transcript ya escrito en disco, para reproducirlo al abrir la pestaña. */
-export async function replayConsole(runId: string, from: number): Promise<ConsoleEvent[]> {
+export async function replayConsole(
+  runId: string,
+  from: number
+): Promise<ConsoleEvent[]> {
   try {
-    const raw = await fsp.readFile(consolePath(runId), 'utf8');
+    const raw = await fsp.readFile(consolePath(runId), "utf8");
     return raw
-      .split('\n')
+      .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line) as ConsoleEvent)
       .filter((e) => e.seq >= from);
@@ -290,9 +322,9 @@ class ConsoleStore {
     this.sessions.set(runId, session);
     if (prior.length > 0) {
       session.log.emit({
-        t: 'log',
-        level: 'info',
-        msg: 'Consola reabierta. Lo de arriba es el historial en disco: la sesión nueva no lo recuerda.',
+        t: "log",
+        level: "info",
+        msg: "Consola reabierta. Lo de arriba es el historial en disco: la sesión nueva no lo recuerda.",
       });
     }
     return session;
