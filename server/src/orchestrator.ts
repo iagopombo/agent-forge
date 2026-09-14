@@ -15,6 +15,7 @@ import {
   createSession,
   deleteSession,
   promptAsync,
+  promptChildSession,
   subscribeEvents,
   type OpencodeSession,
 } from "./opencode.js";

@@ -346,6 +346,55 @@ export async function respondPermission(
   return res.ok;
 }
 
+// ─── Child sessions (for architect-advisor, etc.) ──────────────────
+
+/**
+ * Creates a child session and sends a prompt synchronously.
+ * Used for the architect-advisor subagent consultations.
+ * Returns the assistant's response text.
+ */
+export async function promptChildSession(
+  workspace: string,
+  systemPrompt: string,
+  userPrompt: string,
+  opts?: { model?: string; effort?: string }
+): Promise<{ ok: boolean; text: string; costUsd: number }> {
+  let session: OpencodeSession;
+  try {
+    session = await createSession(workspace, "architect-advisor");
+  } catch (err) {
+    return {
+      ok: false,
+      text: `No se pudo crear sesión: ${err instanceof Error ? err.message : String(err)}`,
+      costUsd: 0,
+    };
+  }
+
+  const fullPrompt = `${systemPrompt}\n\n---\n\n${userPrompt}`;
+
+  try {
+    const result = await promptSync(session.id, fullPrompt, {
+      model: opts?.model,
+    });
+    // Extract text from parts
+    const textParts = result.parts.filter((p) => p.type === "text" && p.text);
+    const text = textParts.map((p) => p.text).join("\n");
+    return {
+      ok: true,
+      text,
+      costUsd: result.info.cost ?? 0,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      text: `Error en child session: ${err instanceof Error ? err.message : String(err)}`,
+      costUsd: 0,
+    };
+  } finally {
+    await deleteSession(session.id).catch(() => {});
+  }
+}
+
 // ─── Health / Config ───────────────────────────────────────────────
 
 export async function healthCheck(): Promise<{
