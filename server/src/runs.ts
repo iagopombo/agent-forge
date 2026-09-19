@@ -1,11 +1,11 @@
-import crypto from 'node:crypto';
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import path from 'node:path';
-import { CONFIG } from './config.js';
-import type { ForgeEvent, PhaseId, RunStatus } from './events.js';
-import { Run, type PhaseOutcome, type RunRequest } from './orchestrator.js';
-import { projectSlug } from './slug.js';
+import crypto from "node:crypto";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
+import { CONFIG } from "./config.js";
+import type { ForgeEvent, PhaseId, RunStatus } from "./events.js";
+import { Run, type PhaseOutcome, type RunRequest } from "./orchestrator.js";
+import { projectSlug } from "./slug.js";
 
 export type RunSummary = {
   id: string;
@@ -25,6 +25,8 @@ export type RunSummary = {
  */
 class RunStore {
   private readonly live = new Map<string, Run>();
+  /** Encadena los `writeManifest()` de cada ejecución — ver esa función. */
+  private readonly manifestQueues = new Map<string, Promise<void>>();
 
   constructor() {
     fs.mkdirSync(CONFIG.runsRoot, { recursive: true });
@@ -38,19 +40,28 @@ class RunStore {
 
   create(request: RunRequest): Run {
     const slug = request.slug ?? projectSlug(request.idea);
-    const id = `${slug}-${crypto.randomBytes(3).toString('hex')}`;
-    const priorPhases = request.startFrom ? this.priorPhaseOutcomes(slug) : undefined;
+    const id = `${slug}-${crypto.randomBytes(3).toString("hex")}`;
+    const priorPhases = request.startFrom
+      ? this.priorPhaseOutcomes(slug)
+      : undefined;
     // Si un intento anterior renombró la carpeta al nombre real del producto
     // (ver `Run.renameToProductName`), retomar tiene que apuntar ahí, no
     // reconstruir la ruta a partir del slug-de-idea (esa carpeta ya no existe).
-    const workspace = request.workspace ?? (request.startFrom ? this.resolveWorkspace(slug) : undefined);
+    const workspace =
+      request.workspace ??
+      (request.startFrom ? this.resolveWorkspace(slug) : undefined);
     const run = new Run(id, { ...request, slug, priorPhases, workspace });
     this.live.set(id, run);
 
-    const stream = fs.createWriteStream(this.eventsPath(id), { flags: 'a' });
+    const stream = fs.createWriteStream(this.eventsPath(id), { flags: "a" });
     run.log.subscribe((event) => {
       stream.write(`${JSON.stringify(event)}\n`);
-      if (event.t === 'phase.end' || event.t === 'run.end' || event.t === 'run.start') {
+      if (
+        event.t === "phase.end" ||
+        event.t === "run.end" ||
+        event.t === "run.start" ||
+        event.t === "workspace"
+      ) {
         void this.writeManifest(run);
       }
     });
@@ -76,7 +87,10 @@ class RunStore {
       await live.stop();
       return true;
     }
-    return this.closeOrphan(id, 'La ejecución se perdió al reiniciarse el servidor.');
+    return this.closeOrphan(
+      id,
+      "La ejecución se perdió al reiniciarse el servidor."
+    );
   }
 
   /** Cierra en disco una ejecución que quedó marcada en curso sin estarlo. */
@@ -84,20 +98,22 @@ class RunStore {
     const file = path.join(CONFIG.runsRoot, `${id}.json`);
     let manifest: RunSummary;
     try {
-      manifest = JSON.parse(await fsp.readFile(file, 'utf8')) as RunSummary;
+      manifest = JSON.parse(await fsp.readFile(file, "utf8")) as RunSummary;
     } catch {
       return false;
     }
 
     // Ya estaba cerrada: detenerla otra vez no es un error, no hay nada que hacer.
     const abierta =
-      manifest.status === 'running' || manifest.status === 'queued' || manifest.status === 'paused';
+      manifest.status === "running" ||
+      manifest.status === "queued" ||
+      manifest.status === "paused";
     if (!abierta) return true;
 
     const finishedAt = Date.now();
     const closed: RunSummary = {
       ...manifest,
-      status: 'stopped',
+      status: "stopped",
       finishedAt,
       currentPhase: null,
     };
@@ -106,10 +122,10 @@ class RunStore {
     // ejecución, así que el final tiene que quedar escrito también ahí.
     let seq = await this.lastSeq(id);
     const events: ForgeEvent[] = [
-      { t: 'log', level: 'warn', msg: reason, seq: ++seq, ts: finishedAt },
+      { t: "log", level: "warn", msg: reason, seq: ++seq, ts: finishedAt },
       {
-        t: 'run.end',
-        status: 'stopped',
+        t: "run.end",
+        status: "stopped",
         costUsd: manifest.costUsd ?? 0,
         durationMs: finishedAt - (manifest.createdAt || finishedAt),
         seq: ++seq,
@@ -118,18 +134,18 @@ class RunStore {
     ];
     await fsp.appendFile(
       this.eventsPath(id),
-      events.map((e) => `${JSON.stringify(e)}\n`).join(''),
-      'utf8',
+      events.map((e) => `${JSON.stringify(e)}\n`).join(""),
+      "utf8"
     );
-    await fsp.writeFile(file, JSON.stringify(closed, null, 2), 'utf8');
+    await writeJsonAtomic(file, closed);
     return true;
   }
 
   /** Último `seq` escrito, para seguir numerando donde lo dejó la ejecución. */
   private async lastSeq(id: string): Promise<number> {
     try {
-      const raw = await fsp.readFile(this.eventsPath(id), 'utf8');
-      const lines = raw.split('\n').filter(Boolean);
+      const raw = await fsp.readFile(this.eventsPath(id), "utf8");
+      const lines = raw.split("\n").filter(Boolean);
       const last = lines[lines.length - 1];
       return last ? ((JSON.parse(last) as ForgeEvent).seq ?? -1) : -1;
     } catch {
@@ -139,10 +155,10 @@ class RunStore {
 
   private async reapOrphans(): Promise<void> {
     for (const file of await safeReaddir(CONFIG.runsRoot)) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith(".json")) continue;
       await this.closeOrphan(
-        file.slice(0, -'.json'.length),
-        'La ejecución se perdió al reiniciarse el servidor.',
+        file.slice(0, -".json".length),
+        "La ejecución se perdió al reiniciarse el servidor."
       ).catch(() => false);
     }
   }
@@ -151,9 +167,12 @@ class RunStore {
     const byId = new Map<string, RunSummary>();
 
     for (const file of await safeReaddir(CONFIG.runsRoot)) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith(".json")) continue;
       try {
-        const raw = await fsp.readFile(path.join(CONFIG.runsRoot, file), 'utf8');
+        const raw = await fsp.readFile(
+          path.join(CONFIG.runsRoot, file),
+          "utf8"
+        );
         const parsed = JSON.parse(raw) as RunSummary;
         byId.set(parsed.id, parsed);
       } catch {
@@ -187,7 +206,10 @@ class RunStore {
     const live = this.live.get(id);
     if (live) return live.workspace;
     try {
-      const raw = await fsp.readFile(path.join(CONFIG.runsRoot, `${id}.json`), 'utf8');
+      const raw = await fsp.readFile(
+        path.join(CONFIG.runsRoot, `${id}.json`),
+        "utf8"
+      );
       const manifest = JSON.parse(raw) as RunSummary;
       return manifest.workspace ?? null;
     } catch {
@@ -198,9 +220,9 @@ class RunStore {
   /** Replays a finished run's events from disk when it is no longer in memory. */
   async replay(id: string, from: number): Promise<ForgeEvent[]> {
     try {
-      const raw = await fsp.readFile(this.eventsPath(id), 'utf8');
+      const raw = await fsp.readFile(this.eventsPath(id), "utf8");
       return raw
-        .split('\n')
+        .split("\n")
         .filter(Boolean)
         .map((line) => JSON.parse(line) as ForgeEvent)
         .filter((e) => e.seq >= from);
@@ -224,14 +246,18 @@ class RunStore {
    * de manifiestos y registros pequeños, nunca en el camino caliente de una
    * fase en marcha.
    */
-  private priorPhaseOutcomes(slug: string): Partial<Record<PhaseId, PhaseOutcome>> {
+  private priorPhaseOutcomes(
+    slug: string
+  ): Partial<Record<PhaseId, PhaseOutcome>> {
     const latest = new Map<PhaseId, { outcome: PhaseOutcome; ts: number }>();
 
     for (const file of safeReaddirSync(CONFIG.runsRoot)) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith(".json")) continue;
       let manifest: RunSummary;
       try {
-        manifest = JSON.parse(fs.readFileSync(path.join(CONFIG.runsRoot, file), 'utf8'));
+        manifest = JSON.parse(
+          fs.readFileSync(path.join(CONFIG.runsRoot, file), "utf8")
+        );
       } catch {
         continue;
       }
@@ -239,11 +265,11 @@ class RunStore {
 
       let raw: string;
       try {
-        raw = fs.readFileSync(this.eventsPath(manifest.id), 'utf8');
+        raw = fs.readFileSync(this.eventsPath(manifest.id), "utf8");
       } catch {
         continue;
       }
-      for (const line of raw.split('\n')) {
+      for (const line of raw.split("\n")) {
         if (!line) continue;
         let event: ForgeEvent;
         try {
@@ -251,11 +277,16 @@ class RunStore {
         } catch {
           continue;
         }
-        if (event.t !== 'phase.end' || !event.ok) continue;
+        if (event.t !== "phase.end" || !event.ok) continue;
         const prev = latest.get(event.phase);
         if (!prev || event.ts > prev.ts) {
           latest.set(event.phase, {
-            outcome: { ok: true, summary: event.summary, costUsd: event.costUsd, durationMs: event.durationMs },
+            outcome: {
+              ok: true,
+              summary: event.summary,
+              costUsd: event.costUsd,
+              durationMs: event.durationMs,
+            },
             ts: event.ts,
           });
         }
@@ -274,29 +305,75 @@ class RunStore {
    * intento anterior (`Run.renameToProductName`): reconstruir la ruta a
    * partir del slug apuntaría a una carpeta que ya no existe.
    */
-  private resolveWorkspace(slug: string): string | undefined {
+  /** Público: `index.ts` lo usa para comprobar que el workspace a retomar existe. */
+  resolveWorkspace(slug: string): string | undefined {
     let latest: { workspace: string; createdAt: number } | undefined;
     for (const file of safeReaddirSync(CONFIG.runsRoot)) {
-      if (!file.endsWith('.json')) continue;
+      if (!file.endsWith(".json")) continue;
       let manifest: RunSummary;
       try {
-        manifest = JSON.parse(fs.readFileSync(path.join(CONFIG.runsRoot, file), 'utf8'));
+        manifest = JSON.parse(
+          fs.readFileSync(path.join(CONFIG.runsRoot, file), "utf8")
+        );
       } catch {
         continue;
       }
       if ((manifest.slug ?? projectSlug(manifest.idea)) !== slug) continue;
       if (!manifest.workspace) continue;
       if (!latest || manifest.createdAt > latest.createdAt) {
-        latest = { workspace: manifest.workspace, createdAt: manifest.createdAt };
+        latest = {
+          workspace: manifest.workspace,
+          createdAt: manifest.createdAt,
+        };
       }
     }
     return latest?.workspace;
   }
 
-  private async writeManifest(run: Run): Promise<void> {
+  /**
+   * Encolada por id, no lanzada suelta: `phase.end` de diseño y arquitecto
+   * seguidos casi en el mismo tick (fases en paralelo, o varias fases
+   * sembradas de golpe al retomar) disparaban varias llamadas a la vez. La
+   * escritura atómica (`writeJsonAtomic`) ya evita que se entrelacen y dejen
+   * el JSON corrupto, pero dos `rename()` casi simultáneos sobre el MISMO
+   * destino pueden pisarse en Windows y el segundo falla con `EPERM` — visto
+   * en real: eso tumbaba el proceso entero, porque quien llama aquí lo hace
+   * con `void this.writeManifest(run)` sin `.catch()`, y una promesa
+   * rechazada sin capturar es una excepción no controlada que Node no
+   * perdona. Encolar por id serializa las escrituras (ninguna se solapa con
+   * otra del mismo fichero) y el `.catch` de dentro asegura que esta función
+   * nunca rechaza: como con `renameToProductName`, persistir el manifiesto es
+   * algo que ayuda pero que no puede tirar abajo la ejecución si falla.
+   */
+  private writeManifest(run: Run): Promise<void> {
     const file = path.join(CONFIG.runsRoot, `${run.id}.json`);
-    await fsp.writeFile(file, JSON.stringify(toSummary(run), null, 2), 'utf8');
+    const previous = this.manifestQueues.get(run.id) ?? Promise.resolve();
+    const next = previous.then(
+      () => writeJsonAtomic(file, toSummary(run)).catch(() => undefined),
+      () => writeJsonAtomic(file, toSummary(run)).catch(() => undefined)
+    );
+    this.manifestQueues.set(run.id, next);
+    return next;
   }
+}
+
+/**
+ * Escritura atómica: escribe a un temporal propio de esta llamada y hace
+ * `rename()` sobre el destino. `phase.end` de diseño y arquitecto (en
+ * paralelo) pueden disparar dos `writeManifest()` casi a la vez — con
+ * `fsp.writeFile()` directo sobre el mismo fichero, dos escrituras
+ * concurrentes pueden entrelazarse y dejar JSON corrupto a medias (visto en
+ * real: `.runs/<id>.json` con el cierre `}` correcto seguido de la cola de
+ * la otra escritura pegada detrás). `rename()` es atómico a nivel de sistema
+ * de archivos — cada llamada escribe su propio temporal completo y solo
+ * entonces sustituye el destino, así que gana la última en terminar, nunca
+ * una mezcla de las dos. Usado tanto por `writeManifest` como por
+ * `closeOrphan`, los dos sitios que escriben `.runs/<id>.json`.
+ */
+async function writeJsonAtomic(file: string, data: unknown): Promise<void> {
+  const tmp = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+  await fsp.writeFile(tmp, JSON.stringify(data, null, 2), "utf8");
+  await fsp.rename(tmp, file);
 }
 
 function toSummary(run: Run): RunSummary {

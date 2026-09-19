@@ -27,6 +27,17 @@ una regla de tu fase (verificar antes de terminar, por ejemplo, no se negocia).
   puntual con Edit cuesta tokens de salida proporcionales al cambio; reescribir
   el archivo entero con Write cuesta proporcional al archivo completo. Usa
   Write solo para archivos nuevos o cuando de verdad cambia casi todo.
+- **Si acabas de perder detalle (p. ej. justo después de una compactación de
+  contexto), no reconstruyas releyendo todo lo que ya habías leído.** Es el
+  error más caro que puedes cometer: relees un documento entero para recuperar
+  un solo dato, eso vuelve a llenar el contexto casi de inmediato, y compacta
+  otra vez — un bucle que no converge y termina abortando la fase entera
+  ("autocompact is thrashing"). En su lugar: confía en el resumen para lo que
+  ya decidiste, y para el dato puntual que de verdad necesitas (un nombre de
+  campo, la forma de un endpoint), usa Grep para localizarlo o, si tienes la
+  herramienta Task con subagent_type "architect-advisor", pregúntaselo — corre
+  en su propio contexto, así que el documento completo no vuelve a entrar en
+  el tuyo.
 
 ## Verificación
 

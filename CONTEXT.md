@@ -87,10 +87,13 @@ preguntarle algo al usuario, y solo cuando la duda bifurca de verdad el
 producto.
 
 **Diseño**:
-Fase que corre en paralelo con Arquitecto/Backend, no en serie. Maqueta
-pantallas como HTML autocontenido, se las enseña como capturas al usuario e
-itera con su feedback hasta que las aprueba. Su salida documenta el perfil de
-objetivo elegido por pantalla (p. ej. confianza vs. velocidad), los tokens de
+Fase que corre en paralelo con Arquitecto/Backend, no en serie. Antes de
+maquetar, entrevista al usuario sobre las decisiones de estilo que el brief
+deja abiertas (tono, referencias, tema) — el mismo mecanismo que usa Producto
+para alcance, aplicado aquí a estilo. Con eso decidido, maqueta pantallas como
+HTML autocontenido, se las enseña como capturas al usuario e itera con su
+feedback hasta que las aprueba. Su salida documenta el perfil de objetivo
+elegido por pantalla (p. ej. confianza vs. velocidad), los tokens de
 color/tipografía/espaciado y las pantallas aprobadas — el contrato que
 Frontend traduce al framework real en vez de diseñar por su cuenta.
 _Avoid_: prototipo, mockup a secas (el mockup es el artefacto; Diseño es la fase)
@@ -112,9 +115,14 @@ agotaron las rondas de revisión sin converger.
 **Preguntar al usuario**:
 El mecanismo (no una fase) que deja a una fase bloquearse esperando una
 respuesta humana, fuera del ciclo de cuota. Producto lo usa para decisiones de
-alcance (tres opciones concretas más una libre); Diseño lo reutiliza con una
-captura de pantalla adjunta para iterar el mockup.
-_Avoid_: pregunta a secas — puede confundirse con cualquier pregunta suelta del prompt
+alcance (tres opciones concretas más una libre). Diseño lo usa dos veces, con
+propósitos distintos: primero como entrevista de texto para fijar el estilo
+antes de maquetar (misma forma que producto); después, ya maquetando, con una
+captura de pantalla adjunta para iterar el mockup pantalla a pantalla.
+_Avoid_: pregunta a secas — puede confundirse con cualquier pregunta suelta del
+prompt; confundir la entrevista de estilo (sin imagen, al principio) con la
+iteración de mockup (con imagen, en bucle) — son dos usos del mismo mecanismo,
+no el mismo momento
 
 ### Seguridad y contención
 

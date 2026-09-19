@@ -1,0 +1,10 @@
+{
+  "name": "run-agent-forge-driver",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Harness de arranque y pilotaje de Agent Forge. No forma parte del producto.",
+  "dependencies": {
+    "playwright-core": "^1.56.0"
+  }
+}
