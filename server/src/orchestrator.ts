@@ -1,16 +1,26 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import { CONFIG, ROOT } from './config.js';
-import { EventLog, type ForgeEventInput, type PhaseId, type RunStatus } from './events.js';
-import { buildGuard, summarizeTool } from './guard.js';
-import { AGENT_PROCESS, childProcesses, killTree } from './procs.js';
-import { buildAskServer } from './ask.js';
-import { buildDesignServer } from './design.js';
-import { ARCHITECT_ADVISOR_PROMPT, ROLES, type RoleContext } from './roles.js';
-import { projectSlug } from './slug.js';
-import crypto from 'node:crypto';
+import fs from "node:fs/promises";
+import path from "node:path";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { CONFIG, ROOT } from "./config.js";
+import {
+  EventLog,
+  type ForgeEventInput,
+  type PhaseId,
+  type RunStatus,
+} from "./events.js";
+import { buildGuard, summarizeTool } from "./guard.js";
+import { AGENT_PROCESS, childProcesses, killTree } from "./procs.js";
+import { buildAskServer } from "./ask.js";
+import { buildDesignServer } from "./design.js";
+import {
+  ARCHITECT_ADVISOR_PROMPT,
+  RESUME_NOTE,
+  ROLES,
+  type RoleContext,
+} from "./roles.js";
+import { projectSlug } from "./slug.js";
+import crypto from "node:crypto";
 
 export type RunRequest = {
   idea: string;
@@ -39,7 +49,7 @@ export type RunRequest = {
   priorPhases?: Partial<Record<PhaseId, PhaseOutcome>>;
 };
 
-export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type Effort = (typeof EFFORTS)[number];
 
 /** El menor de los dos, para que el techo nunca suba el esfuerzo de un rol. */
@@ -71,8 +81,8 @@ const HARD_ERRORS =
  */
 export const TOKEN_EFFICIENCY_PLUGIN_PATH = path.join(
   ROOT,
-  '.claude-plugins',
-  'token-efficient-coding',
+  ".claude-plugins",
+  "token-efficient-coding"
 );
 
 /**
@@ -82,8 +92,12 @@ export const TOKEN_EFFICIENCY_PLUGIN_PATH = path.join(
  * les costaría tokens sin que lo usen nunca (mismo criterio que
  * TOKEN_EFFICIENCY_PLUGIN, pero ese sí aplica a las nueve fases).
  */
-const DESIGN_QUALITY_PLUGIN_PATH = path.join(ROOT, '.claude-plugins', 'perfect-design');
-const DESIGN_QUALITY_PHASES = new Set<PhaseId>(['design', 'frontend']);
+const DESIGN_QUALITY_PLUGIN_PATH = path.join(
+  ROOT,
+  ".claude-plugins",
+  "perfect-design"
+);
+const DESIGN_QUALITY_PHASES = new Set<PhaseId>(["design", "frontend"]);
 
 /**
  * `env` del SDK por defecto ES `process.env` completo (documentado así: "Defaults
@@ -99,18 +113,18 @@ const DESIGN_QUALITY_PHASES = new Set<PhaseId>(['design', 'frontend']);
  * en el vault.
  */
 const CHILD_SESSION_ENV_KEYS = [
-  'CLAUDECODE',
-  'CLAUDE_CODE_CHILD_SESSION',
-  'CLAUDE_CODE_SESSION_ID',
-  'CLAUDE_CODE_BRIDGE_SESSION_ID',
-  'CLAUDE_CODE_MESSAGING_SOCKET',
-  'CLAUDE_CODE_MESSAGING_TOKEN',
-  'CLAUDE_CODE_EXECPATH',
-  'CLAUDE_CODE_ENTRYPOINT',
-  'AI_AGENT',
-  'CLAUDE_PID',
-  'CLAUDE_EFFORT',
-  'Claude',
+  "CLAUDECODE",
+  "CLAUDE_CODE_CHILD_SESSION",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_BRIDGE_SESSION_ID",
+  "CLAUDE_CODE_MESSAGING_SOCKET",
+  "CLAUDE_CODE_MESSAGING_TOKEN",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "AI_AGENT",
+  "CLAUDE_PID",
+  "CLAUDE_EFFORT",
+  "Claude",
 ];
 
 /**
@@ -121,7 +135,9 @@ const CHILD_SESSION_ENV_KEYS = [
  * y todo lo que `Bash`/`npm` necesitan para funcionar.
  */
 export const SPAWN_ENV: Record<string, string | undefined> = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !CHILD_SESSION_ENV_KEYS.includes(key)),
+  Object.entries(process.env).filter(
+    ([key]) => !CHILD_SESSION_ENV_KEYS.includes(key)
+  )
 );
 
 /**
@@ -132,18 +148,18 @@ export const SPAWN_ENV: Record<string, string | undefined> = Object.fromEntries(
  * no existe para el agente, venga de donde venga.
  */
 export const PIPELINE_TOOLS = [
-  'Bash',
-  'Read',
-  'Write',
-  'Edit',
-  'Glob',
-  'Grep',
-  'NotebookEdit',
-  'WebFetch',
-  'WebSearch',
-  'Task',
-  'TodoWrite',
-  'Skill',
+  "Bash",
+  "Read",
+  "Write",
+  "Edit",
+  "Glob",
+  "Grep",
+  "NotebookEdit",
+  "WebFetch",
+  "WebSearch",
+  "Task",
+  "TodoWrite",
+  "Skill",
 ];
 
 /** Momento (ms epoch) en que la cuota se restablece, si el error lo dice. */
@@ -151,7 +167,7 @@ function parseResetAt(msg: string): number | null {
   const m = msg.match(/resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
   if (!m) return null;
   let hour = Number(m[1]) % 12;
-  if (/pm/i.test(m[3] ?? '')) hour += 12;
+  if (/pm/i.test(m[3] ?? "")) hour += 12;
   const at = new Date();
   at.setHours(hour, m[2] ? Number(m[2]) : 0, 0, 0);
   if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1);
@@ -165,8 +181,17 @@ export type PhaseOutcome = {
   durationMs: number;
 };
 
-type ReviewBlocker = { id?: string; file?: string; problem?: string; fix?: string };
-type ReviewFile = { verdict?: string; blockers?: ReviewBlocker[]; summary?: string };
+type ReviewBlocker = {
+  id?: string;
+  file?: string;
+  problem?: string;
+  fix?: string;
+};
+type ReviewFile = {
+  verdict?: string;
+  blockers?: ReviewBlocker[];
+  summary?: string;
+};
 
 /**
  * Qué fases quedan invalidadas (no se siembran como "hechas") cuando se
@@ -176,12 +201,19 @@ type ReviewFile = { verdict?: string; blockers?: ReviewBlocker[]; summary?: stri
  * `Run.seedPriorPhases`.
  */
 const DOWNSTREAM_OF: Partial<Record<PhaseId, Set<PhaseId>>> = {
-  product: new Set(['product', 'design', 'architect', 'backend', 'frontend', 'integration']),
-  design: new Set(['design', 'frontend', 'integration']),
-  architect: new Set(['architect', 'backend', 'frontend', 'integration']),
-  backend: new Set(['backend', 'frontend', 'integration']),
-  frontend: new Set(['frontend', 'integration']),
-  integration: new Set(['integration']),
+  product: new Set([
+    "product",
+    "design",
+    "architect",
+    "backend",
+    "frontend",
+    "integration",
+  ]),
+  design: new Set(["design", "frontend", "integration"]),
+  architect: new Set(["architect", "backend", "frontend", "integration"]),
+  backend: new Set(["backend", "frontend", "integration"]),
+  frontend: new Set(["frontend", "integration"]),
+  integration: new Set(["integration"]),
 };
 
 /**
@@ -199,7 +231,7 @@ export class Run {
    */
   workspace: string;
   readonly slug: string;
-  status: RunStatus = 'queued';
+  status: RunStatus = "queued";
   costUsd = 0;
   startedAt = 0;
   finishedAt = 0;
@@ -222,6 +254,8 @@ export class Run {
    * invalidaría por error el rastreo de otra fase corriendo en paralelo.
    */
   private phaseGen = new Map<PhaseId, number>();
+  /** Ver `resumeNoteFor`: el aviso de reanudación se entrega una sola vez. */
+  private resumeNoteConsumed = false;
   /** Motivo por el que no tiene sentido seguir con las fases que faltan. */
   private fatal: string | null = null;
   /**
@@ -229,29 +263,37 @@ export class Run {
    * cuota), para derivar `status` sin que una pausa de una fase (p. ej.
    * diseño) tape que otra (arquitecto/backend) sigue trabajando de verdad.
    */
-  private activePhases = new Map<PhaseId, 'running' | 'paused'>();
+  private activePhases = new Map<PhaseId, "running" | "paused">();
   /** Tope de espera acumulada sin cuota antes de rendirse (8 h). */
   private static readonly MAX_PAUSE_MS = 8 * 60 * 60 * 1000;
   /** Preguntas del agente esperando respuesta del usuario, por id. */
   private readonly pendingAsks = new Map<
     string,
-    { phase: PhaseId; resolve: (answer: string) => void; reject: (err: Error) => void }
+    {
+      phase: PhaseId;
+      resolve: (answer: string) => void;
+      reject: (err: Error) => void;
+    }
   >();
 
   /** Preguntas abiertas ahora mismo, para que la API las reponga al reconectar. */
   get openQuestions(): Array<{ id: string; phase: PhaseId }> {
-    return [...this.pendingAsks.entries()].map(([id, a]) => ({ id, phase: a.phase }));
+    return [...this.pendingAsks.entries()].map(([id, a]) => ({
+      id,
+      phase: a.phase,
+    }));
   }
 
   constructor(
     readonly id: string,
-    readonly request: RunRequest,
+    readonly request: RunRequest
   ) {
     this.log = new EventLog(CONFIG.eventBufferSize);
     this.slug = request.slug ?? projectSlug(request.idea);
     // La carpeta se llama como el proyecto, no como el id: varios intentos del
     // mismo proyecto comparten workspace y continúan el trabajo anterior.
-    this.workspace = request.workspace ?? path.join(CONFIG.workspacesRoot, this.slug);
+    this.workspace =
+      request.workspace ?? path.join(CONFIG.workspacesRoot, this.slug);
   }
 
   private emit = (e: ForgeEventInput) => this.log.emit(e);
@@ -263,10 +305,19 @@ export class Run {
    * contestar «hecho» sin mentir.
    */
   async stop(): Promise<void> {
-    if (this.status !== 'running' && this.status !== 'queued' && this.status !== 'paused') return;
-    this.status = 'stopped';
-    this.rejectAsks('La ejecución se detuvo.');
-    this.emit({ t: 'log', level: 'warn', msg: 'Ejecución detenida por el usuario.' });
+    if (
+      this.status !== "running" &&
+      this.status !== "queued" &&
+      this.status !== "paused"
+    )
+      return;
+    this.status = "stopped";
+    this.rejectAsks("La ejecución se detuvo.");
+    this.emit({
+      t: "log",
+      level: "warn",
+      msg: "Ejecución detenida por el usuario.",
+    });
     // Primero el árbol y después el aborto, no al revés: abortar le manda
     // SIGTERM al proceso del SDK, y una vez muerto ya no se puede bajar por sus
     // hijos: el `npm install` que hubiera lanzado quedaría huérfano y vivo.
@@ -293,11 +344,17 @@ export class Run {
    * Devuelve el PID encontrado (o `undefined` si se agotan los intentos) para
    * que quien llama pueda quitarlo de `children` cuando la fase termine.
    */
-  private async trackChild(before: Set<number>, stopCheck: () => boolean): Promise<number | undefined> {
+  private async trackChild(
+    before: Set<number>,
+    stopCheck: () => boolean
+  ): Promise<number | undefined> {
     for (let intento = 0; intento < 20; intento++) {
       if (this.stopped || stopCheck()) return undefined;
       const nuevo = (await childProcesses(process.pid)).find(
-        (p) => !before.has(p.pid) && AGENT_PROCESS.test(p.name) && !this.children.has(p.pid),
+        (p) =>
+          !before.has(p.pid) &&
+          AGENT_PROCESS.test(p.name) &&
+          !this.children.has(p.pid)
       );
       if (nuevo) {
         if (!stopCheck()) this.children.add(nuevo.pid);
@@ -320,12 +377,12 @@ export class Run {
     phase: PhaseId,
     question: string,
     options: string[],
-    image?: string,
+    image?: string
   ): Promise<string> =>
     new Promise((resolve, reject) => {
-      const id = crypto.randomBytes(4).toString('hex');
+      const id = crypto.randomBytes(4).toString("hex");
       this.pendingAsks.set(id, { phase, resolve, reject });
-      this.emit({ t: 'ask', phase, id, question, options, image });
+      this.emit({ t: "ask", phase, id, question, options, image });
     });
 
   /** Contesta una pregunta abierta. Devuelve false si el id ya no existe. */
@@ -333,7 +390,7 @@ export class Run {
     const pending = this.pendingAsks.get(id);
     if (!pending) return false;
     this.pendingAsks.delete(id);
-    this.emit({ t: 'answer', phase: pending.phase, id, answer: text });
+    this.emit({ t: "answer", phase: pending.phase, id, answer: text });
     pending.resolve(text);
     return true;
   }
@@ -355,16 +412,16 @@ export class Run {
     if (this.stopped || this.fatal !== null) return;
     const states = [...this.activePhases.values()];
     if (states.length === 0) return; // nada activo ahora mismo: no tocar el status
-    this.status = states.every((s) => s === 'paused') ? 'paused' : 'running';
+    this.status = states.every((s) => s === "paused") ? "paused" : "running";
   }
 
   async start(): Promise<void> {
-    this.status = 'running';
+    this.status = "running";
     this.startedAt = Date.now();
-    await fs.mkdir(path.join(this.workspace, 'docs'), { recursive: true });
+    await fs.mkdir(path.join(this.workspace, "docs"), { recursive: true });
 
     this.emit({
-      t: 'run.start',
+      t: "run.start",
       runId: this.id,
       idea: this.request.idea,
       workspace: this.workspace,
@@ -374,30 +431,30 @@ export class Run {
 
     try {
       await this.pipeline();
-      if (this.status === 'running') {
+      if (this.status === "running") {
         // "Terminada" solo si todas las fases que se ejecutaron salieron bien.
         // Antes bastaba con llegar al final del bucle, aunque no hubiera
         // sobrevivido ninguna.
         const fallidas = [...this.phases.values()].filter((p) => !p.ok).length;
-        this.status = this.fatal || fallidas > 0 ? 'failed' : 'done';
+        this.status = this.fatal || fallidas > 0 ? "failed" : "done";
         if (fallidas > 0) {
           this.emit({
-            t: 'log',
-            level: 'error',
-            msg: `La ejecución termina con ${fallidas} fase(s) fallida(s).${this.fatal ? ` Causa: ${this.fatal}` : ''}`,
+            t: "log",
+            level: "error",
+            msg: `La ejecución termina con ${fallidas} fase(s) fallida(s).${this.fatal ? ` Causa: ${this.fatal}` : ""}`,
           });
         }
       }
     } catch (err) {
       if (!this.stopped) {
-        this.status = 'failed';
-        this.emit({ t: 'log', level: 'error', msg: describeError(err) });
+        this.status = "failed";
+        this.emit({ t: "log", level: "error", msg: describeError(err) });
       }
     } finally {
       this.finishedAt = Date.now();
       this.currentPhase = null;
       this.emit({
-        t: 'run.end',
+        t: "run.end",
         status: this.status,
         costUsd: this.costUsd,
         durationMs: this.finishedAt - this.startedAt,
@@ -432,12 +489,20 @@ export class Run {
     if (!prior) return;
     const from = this.request.startFrom;
     const invalidated = from ? DOWNSTREAM_OF[from] : undefined;
-    for (const [phase, outcome] of Object.entries(prior) as [PhaseId, PhaseOutcome][]) {
+    for (const [phase, outcome] of Object.entries(prior) as [
+      PhaseId,
+      PhaseOutcome,
+    ][]) {
       if (invalidated?.has(phase)) continue;
-      this.emit({ t: 'phase.start', phase, label: ROLES[phase].label, round: 1 });
+      this.emit({
+        t: "phase.start",
+        phase,
+        label: ROLES[phase].label,
+        round: 1,
+      });
       this.phases.set(phase, outcome);
       this.costUsd += outcome.costUsd;
-      this.emit({ t: 'phase.end', phase, ...outcome });
+      this.emit({ t: "phase.end", phase, ...outcome });
     }
   }
 
@@ -453,10 +518,10 @@ export class Run {
    * debe tirar abajo una ejecución que por lo demás va bien.
    */
   private async renameToProductName(): Promise<void> {
-    const nameFile = path.join(this.workspace, 'docs', 'NOMBRE.txt');
+    const nameFile = path.join(this.workspace, "docs", "NOMBRE.txt");
     let raw: string;
     try {
-      raw = (await fs.readFile(nameFile, 'utf8')).trim();
+      raw = (await fs.readFile(nameFile, "utf8")).trim();
     } catch {
       return;
     }
@@ -470,8 +535,8 @@ export class Run {
     try {
       await fs.access(target);
       this.emit({
-        t: 'log',
-        level: 'warn',
+        t: "log",
+        level: "warn",
         msg: `No se renombra a "${targetSlug}": ya existe una carpeta con ese nombre. Se queda en "${currentName}".`,
       });
       return;
@@ -483,8 +548,8 @@ export class Run {
       await fs.rename(this.workspace, target);
     } catch (err) {
       this.emit({
-        t: 'log',
-        level: 'warn',
+        t: "log",
+        level: "warn",
         msg: `No se pudo renombrar la carpeta a "${targetSlug}": ${describeError(err)}. Se queda en "${currentName}".`,
       });
       return;
@@ -492,8 +557,8 @@ export class Run {
 
     this.workspace = target;
     this.emit({
-      t: 'log',
-      level: 'info',
+      t: "log",
+      level: "info",
       msg: `Carpeta renombrada de "${currentName}" a "${targetSlug}" (nombre del producto).`,
     });
   }
@@ -509,27 +574,31 @@ export class Run {
   private async pipeline(): Promise<void> {
     const ctx: RoleContext = {
       idea: this.request.idea,
-      language: this.request.language ?? 'español',
+      language: this.request.language ?? "español",
       round: 1,
-      previous: '',
-      design: '',
+      previous: "",
+      design: "",
       blockers: [],
+      resumeNote: "",
     };
 
     // Al retomar, las fases anteriores ya dejaron su rastro en docs/ y en el
-    // código: el contrato entre agentes está en disco, no en esta variable.
+    // código: el contrato entre agentes está en disco, no en `ctx.previous`
+    // (que una reanudación sobrescribe varias veces con resúmenes legítimos
+    // antes de que le toque el turno a la fase retomada). El aviso de
+    // reanudación viaja en `ctx.resumeNote`, fijado justo antes de cada
+    // llamada a `runPhase` vía `resumeNoteFor` — así llega intacto a la fase
+    // exacta que se retoma, y a ninguna otra.
     const from = this.request.startFrom;
-    if (from) {
-      ctx.previous = `Retomas una ejecución interrumpida en la fase "${from}". El workspace ya tiene trabajo anterior: lee docs/ y el código existente antes de escribir nada, y continúa desde ahí en lugar de empezar de cero.`;
-    }
 
     // --- producto: siempre primero, nunca en paralelo con nada ---
-    const seededProduct = this.phases.get('product');
+    const seededProduct = this.phases.get("product");
     if (seededProduct) {
       ctx.previous = seededProduct.summary;
     } else {
       if (this.halted) return;
-      const outcome = await this.runPhase('product', ctx);
+      ctx.resumeNote = this.resumeNoteFor("product");
+      const outcome = await this.runPhase("product", ctx);
       ctx.previous = outcome.summary;
       if (outcome.ok) await this.renameToProductName();
     }
@@ -537,72 +606,88 @@ export class Run {
     // --- diseño || (arquitecto -> backend), en paralelo ---
     if (this.halted) return;
 
-    const designCtx: RoleContext = { ...ctx };
-    const mainCtx: RoleContext = { ...ctx };
+    const designCtx: RoleContext = {
+      ...ctx,
+      resumeNote: this.resumeNoteFor("design"),
+    };
+    const mainCtx: RoleContext = { ...ctx, resumeNote: "" };
 
-    const designWork: Promise<PhaseOutcome> = this.phases.get('design')
-      ? Promise.resolve(this.phases.get('design')!)
-      : this.runPhase('design', designCtx);
+    const designWork: Promise<PhaseOutcome> = this.phases.get("design")
+      ? Promise.resolve(this.phases.get("design")!)
+      : this.runPhase("design", designCtx);
 
     const mainWork: Promise<PhaseOutcome> = (async () => {
-      const architectOutcome = this.phases.get('architect') ?? (await this.runPhase('architect', mainCtx));
+      mainCtx.resumeNote = this.resumeNoteFor("architect");
+      const architectOutcome =
+        this.phases.get("architect") ??
+        (await this.runPhase("architect", mainCtx));
       mainCtx.previous = architectOutcome.summary;
       if (this.halted || !architectOutcome.ok) return architectOutcome;
 
-      return this.phases.get('backend') ?? this.runPhase('backend', mainCtx);
+      mainCtx.resumeNote = this.resumeNoteFor("backend");
+      return this.phases.get("backend") ?? this.runPhase("backend", mainCtx);
     })();
 
-    const [designOutcome, backendOutcome] = await Promise.all([designWork, mainWork]);
+    const [designOutcome, backendOutcome] = await Promise.all([
+      designWork,
+      mainWork,
+    ]);
     ctx.design = designOutcome.summary;
     ctx.previous = backendOutcome.summary;
 
     if (this.halted) return;
 
     // --- frontend: necesita diseño Y backend ---
-    const seededFrontend = this.phases.get('frontend');
+    const seededFrontend = this.phases.get("frontend");
     if (seededFrontend) {
       ctx.previous = seededFrontend.summary;
     } else {
-      const frontendOutcome = await this.runPhase('frontend', ctx);
+      ctx.resumeNote = this.resumeNoteFor("frontend");
+      const frontendOutcome = await this.runPhase("frontend", ctx);
       ctx.previous = frontendOutcome.summary;
     }
 
     if (this.halted) return;
 
     // --- integración ---
-    const seededIntegration = this.phases.get('integration');
+    const seededIntegration = this.phases.get("integration");
     if (seededIntegration) {
       ctx.previous = seededIntegration.summary;
     } else {
-      const integrationOutcome = await this.runPhase('integration', ctx);
+      ctx.resumeNote = this.resumeNoteFor("integration");
+      const integrationOutcome = await this.runPhase("integration", ctx);
       ctx.previous = integrationOutcome.summary;
     }
 
     // Review -> fix -> review, until the reviewer passes or we run out of rounds.
     const maxRounds = this.request.maxReviewRounds ?? CONFIG.maxReviewRounds;
-    if (from === 'package') return void (await this.runPhase('package', ctx));
+    if (from === "package") {
+      ctx.resumeNote = this.resumeNoteFor("package");
+      return void (await this.runPhase("package", ctx));
+    }
 
     for (let round = 1; round <= maxRounds + 1; round++) {
       if (this.halted) return;
 
       ctx.round = round;
-      const review = await this.runPhase('review', ctx);
+      ctx.resumeNote = this.resumeNoteFor("review");
+      const review = await this.runPhase("review", ctx);
       ctx.previous = review.summary;
 
       if (!review.ok) {
         // Una revisión que no llegó a ejecutarse no aprueba nada.
         this.emit({
-          t: 'log',
-          level: 'warn',
-          msg: 'La fase de revisión falló, así que no hay veredicto. Se entrega sin auditar.',
+          t: "log",
+          level: "warn",
+          msg: "La fase de revisión falló, así que no hay veredicto. Se entrega sin auditar.",
         });
         break;
       }
 
       const verdict = await this.readVerdict();
       this.emit({
-        t: 'review',
-        verdict: verdict.pass ? 'pass' : 'changes_requested',
+        t: "review",
+        verdict: verdict.pass ? "pass" : "changes_requested",
         blockers: verdict.blockers,
         round,
       });
@@ -611,25 +696,44 @@ export class Run {
 
       if (round > maxRounds) {
         this.emit({
-          t: 'log',
-          level: 'warn',
+          t: "log",
+          level: "warn",
           msg: `Se agotaron las ${maxRounds} rondas de corrección con ${verdict.blockers.length} bloqueante(s) abiertos. Ver docs/05-REVIEW.md.`,
         });
         break;
       }
 
       ctx.blockers = verdict.blockers;
-      const fix = await this.runPhase('fix', ctx);
+      ctx.resumeNote = this.resumeNoteFor("fix");
+      const fix = await this.runPhase("fix", ctx);
       ctx.previous = fix.summary;
       ctx.blockers = [];
     }
 
     if (this.halted) return;
-    await this.runPhase('package', ctx);
+    ctx.resumeNote = this.resumeNoteFor("package");
+    await this.runPhase("package", ctx);
+  }
+
+  /**
+   * Da el aviso de reanudación exactamente una vez, y solo a la fase que de
+   * verdad se está retomando (`this.request.startFrom`). Se llama en cada
+   * punto del pipeline donde una fase está a punto de arrancar de verdad —
+   * incluidas las que corren en paralelo (diseño frente a arquitecto) —
+   * porque con dos ramas simultáneas no basta con fijar el aviso una vez al
+   * principio: una copia de `ctx` que no es la fase retomada podría heredarlo
+   * igual y mostrarlo donde no toca. El flag de un solo uso evita además que
+   * una ronda 2+ de review/fix repita un aviso que ya cumplió su propósito
+   * en la ronda 1.
+   */
+  private resumeNoteFor(phase: PhaseId): string {
+    if (this.resumeNoteConsumed || this.request.startFrom !== phase) return "";
+    this.resumeNoteConsumed = true;
+    return RESUME_NOTE;
   }
 
   private get stopped(): boolean {
-    return this.status === 'stopped' || this.abort.signal.aborted;
+    return this.status === "stopped" || this.abort.signal.aborted;
   }
 
   /** Parada por el usuario o por un error que no se arregla pasando de fase. */
@@ -639,25 +743,32 @@ export class Run {
 
   /** Reads docs/REVIEW.json, tolerating a reviewer that wrapped it in a code fence. */
   private async readVerdict(): Promise<{ pass: boolean; blockers: string[] }> {
-    const file = path.join(this.workspace, 'docs', 'REVIEW.json');
+    const file = path.join(this.workspace, "docs", "REVIEW.json");
     let parsed: ReviewFile | null = null;
     try {
-      const raw = await fs.readFile(file, 'utf8');
-      const json = raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+      const raw = await fs.readFile(file, "utf8");
+      const json = raw
+        .trim()
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/```\s*$/, "");
       parsed = JSON.parse(json) as ReviewFile;
     } catch {
       this.emit({
-        t: 'log',
-        level: 'warn',
-        msg: 'No se pudo leer docs/REVIEW.json; se asume que la revisión pasó.',
+        t: "log",
+        level: "warn",
+        msg: "No se pudo leer docs/REVIEW.json; se asume que la revisión pasó.",
       });
       return { pass: true, blockers: [] };
     }
 
     const blockers = (parsed.blockers ?? []).map(
-      (b) => `[${b.id ?? '?'}] ${b.file ?? 'sin archivo'} — ${b.problem ?? ''} → ${b.fix ?? ''}`,
+      (b) =>
+        `[${b.id ?? "?"}] ${b.file ?? "sin archivo"} — ${b.problem ?? ""} → ${b.fix ?? ""}`
     );
-    return { pass: parsed.verdict === 'pass' && blockers.length === 0, blockers };
+    return {
+      pass: parsed.verdict === "pass" && blockers.length === 0,
+      blockers,
+    };
   }
 
   /**
@@ -671,18 +782,24 @@ export class Run {
    * aunque ESTA fase esté esperando cuota — importa porque con diseño en
    * paralelo con arquitecto/backend, una pausa de una no es una pausa de todas.
    */
-  private async runPhase(phase: PhaseId, ctx: RoleContext): Promise<PhaseOutcome> {
-    this.activePhases.set(phase, 'running');
+  private async runPhase(
+    phase: PhaseId,
+    ctx: RoleContext
+  ): Promise<PhaseOutcome> {
+    this.activePhases.set(phase, "running");
     this.updateStatus();
     try {
       for (;;) {
         const { pauseSignal, ...outcome } = await this.runPhaseOnce(phase, ctx);
-        if (!pauseSignal || this.stopped) return outcome;
-        this.activePhases.set(phase, 'paused');
+        if (!pauseSignal || this.stopped) {
+          ctx.resumeNote = ""; // no debe sobrevivir a la fase siguiente que reutiliza `ctx`
+          return outcome;
+        }
+        this.activePhases.set(phase, "paused");
         this.updateStatus();
         const resumed = await this.waitForQuota(phase, pauseSignal);
         if (!resumed) return outcome; // parada o se agotó la espera
-        this.activePhases.set(phase, 'running');
+        this.activePhases.set(phase, "running");
         this.updateStatus();
         // reintenta la misma fase
       }
@@ -695,26 +812,34 @@ export class Run {
   /** Pausa hasta que se estime que la cuota volvió. Devuelve false si se paró. */
   private async waitForQuota(
     phase: PhaseId,
-    signal: { reason: string; resumeAt: number | null },
+    signal: { reason: string; resumeAt: number | null }
   ): Promise<boolean> {
     const startedWaiting = Date.now();
-    this.emit({ t: 'paused', phase, reason: signal.reason, resumeAt: signal.resumeAt });
+    this.emit({
+      t: "paused",
+      phase,
+      reason: signal.reason,
+      resumeAt: signal.resumeAt,
+    });
 
     while (!this.stopped) {
       if (Date.now() - startedWaiting > Run.MAX_PAUSE_MS) {
-        this.fatal = 'Se agotó la espera de cuota (8 h) sin que se restableciera.';
-        this.emit({ t: 'log', level: 'error', msg: this.fatal });
+        this.fatal =
+          "Se agotó la espera de cuota (8 h) sin que se restableciera.";
+        this.emit({ t: "log", level: "error", msg: this.fatal });
         return false;
       }
       // Hasta la hora de reset (con 60 s de margen), o 5 min si no la sabemos.
-      const target = signal.resumeAt ? signal.resumeAt + 60_000 : Date.now() + 5 * 60_000;
+      const target = signal.resumeAt
+        ? signal.resumeAt + 60_000
+        : Date.now() + 5 * 60_000;
       const remaining = target - Date.now();
       if (remaining <= 0) break;
       await this.sleep(Math.min(remaining, 15_000)); // troceado, para cortar al parar
     }
 
     if (this.stopped) return false;
-    this.emit({ t: 'resumed', phase });
+    this.emit({ t: "resumed", phase });
     return true;
   }
 
@@ -725,22 +850,26 @@ export class Run {
       // retirar su oyente: si no, una fase larga los va acumulando.
       const done = () => {
         clearTimeout(timer);
-        this.abort.signal.removeEventListener('abort', done);
+        this.abort.signal.removeEventListener("abort", done);
         resolve();
       };
       const timer = setTimeout(done, ms);
-      this.abort.signal.addEventListener('abort', done, { once: true });
+      this.abort.signal.addEventListener("abort", done, { once: true });
     });
   }
 
   private async runPhaseOnce(
     phase: PhaseId,
-    ctx: RoleContext,
-  ): Promise<PhaseOutcome & { pauseSignal: { reason: string; resumeAt: number | null } | null }> {
+    ctx: RoleContext
+  ): Promise<
+    PhaseOutcome & {
+      pauseSignal: { reason: string; resumeAt: number | null } | null;
+    }
+  > {
     const role = ROLES[phase];
     const startedAt = Date.now();
     this.currentPhase = phase;
-    this.emit({ t: 'phase.start', phase, label: role.label, round: ctx.round });
+    this.emit({ t: "phase.start", phase, label: role.label, round: ctx.round });
 
     // Foto de los hijos directos antes de que el SDK lance el suyo: el que
     // aparezca después es esta fase, y su árbol es lo que hay que cerrar al
@@ -751,7 +880,9 @@ export class Run {
     // invalidaría por error este rastreo.
     const myGen = (this.phaseGen.get(phase) ?? 0) + 1;
     this.phaseGen.set(phase, myGen);
-    const before = new Set((await childProcesses(process.pid)).map((p) => p.pid));
+    const before = new Set(
+      (await childProcesses(process.pid)).map((p) => p.pid)
+    );
 
     const options: Options = {
       cwd: this.workspace,
@@ -759,9 +890,9 @@ export class Run {
       effort: capEffort(role.effort, this.request.effortCap),
       maxTurns: role.maxTurns,
       maxBudgetUsd: this.request.maxBudgetUsd ?? CONFIG.maxBudgetUsd,
-      permissionMode: 'default',
+      permissionMode: "default",
       canUseTool: buildGuard(this.workspace, (name, reason) =>
-        this.emit({ t: 'denied', phase, name, reason }),
+        this.emit({ t: "denied", phase, name, reason })
       ),
       // Ver CHILD_SESSION_ENV_KEYS/SPAWN_ENV/PIPELINE_TOOLS arriba: dos capas
       // independientes contra el puenteo del proceso hijo a la sesión de
@@ -770,7 +901,7 @@ export class Run {
       tools: PIPELINE_TOOLS,
       // Opus 5 omits reasoning by default, which makes a long first turn look
       // like the agent has frozen. Summaries keep the live view alive.
-      thinking: { type: 'adaptive', display: 'summarized' },
+      thinking: { type: "adaptive", display: "summarized" },
       // Isolate from the host's ~/.claude and any project settings: a run must
       // depend only on what this orchestrator passes in.
       settingSources: [],
@@ -786,51 +917,58 @@ export class Run {
       // como primer mensaje de usuario — el propio CONTRACT ya deja claro que
       // cwd es la raíz del repo, así que no se pierde nada steering ahí.
       plugins: [
-        { type: 'local', path: TOKEN_EFFICIENCY_PLUGIN_PATH },
+        { type: "local", path: TOKEN_EFFICIENCY_PLUGIN_PATH },
         ...(DESIGN_QUALITY_PHASES.has(phase)
-          ? [{ type: 'local' as const, path: DESIGN_QUALITY_PLUGIN_PATH }]
+          ? [{ type: "local" as const, path: DESIGN_QUALITY_PLUGIN_PATH }]
           : []),
       ],
       systemPrompt: {
-        type: 'preset',
-        preset: 'claude_code',
+        type: "preset",
+        preset: "claude_code",
         append: role.system(ctx),
         excludeDynamicSections: true,
       },
       stderr: (data) => {
         const msg = data.trim();
-        if (msg) this.emit({ t: 'log', level: 'warn', msg: msg.slice(0, 500) });
+        if (msg) this.emit({ t: "log", level: "warn", msg: msg.slice(0, 500) });
       },
       // El agente de producto puede preguntar al usuario ante una duda de
       // alcance. La herramienta vive en este proceso y bloquea hasta la respuesta.
       ...(role.canAsk
-        ? { mcpServers: { forge: buildAskServer((q, opts) => this.askUser(phase, q, opts)) } }
+        ? {
+            mcpServers: {
+              forge: buildAskServer((q, opts) => this.askUser(phase, q, opts)),
+            },
+          }
         : {}),
       // El agente de diseño enseña una captura y espera feedback, en bucle.
       ...(role.canDesign
         ? {
             mcpServers: {
-              forge: buildDesignServer(this.workspace, (q, opts, img) => this.askUser(phase, q, opts, img)),
+              forge: buildDesignServer(this.workspace, (q, opts, img) =>
+                this.askUser(phase, q, opts, img)
+              ),
             },
           }
         : {}),
       ...(role.canConsult
         ? {
             agents: {
-              'architect-advisor': {
+              "architect-advisor": {
                 description:
-                  'El arquitecto del proyecto. Consúltalo cuando el contrato de API, el modelo de datos o la arquitectura tengan un hueco, una ambigüedad o una contradicción con el código real.',
+                  "El arquitecto del proyecto. Consúltalo cuando el contrato de API, el modelo de datos o la arquitectura tengan un hueco, una ambigüedad o una contradicción con el código real.",
                 prompt: ARCHITECT_ADVISOR_PROMPT,
-                tools: ['Read', 'Glob', 'Grep'],
-                model: this.request.model ?? CONFIG.model ?? ROLES.architect.model,
-                effort: 'high' as const,
+                tools: ["Read", "Glob", "Grep"],
+                model:
+                  this.request.model ?? CONFIG.model ?? ROLES.architect.model,
+                effort: "high" as const,
               },
             },
           }
         : {}),
     };
 
-    let summary = '';
+    let summary = "";
     let ok = false;
     let costUsd = 0;
     let pauseSignal: { reason: string; resumeAt: number | null } | null = null;
@@ -838,18 +976,24 @@ export class Run {
     // En paralelo, porque el proceso todavía no existe: aparecerá mientras el
     // primer mensaje viaja de vuelta. Se recoge al final (ya habrá resuelto
     // hace rato) solo para poder quitar el PID de `children` al terminar.
-    const trackPromise = this.trackChild(before, () => this.phaseGen.get(phase) !== myGen);
+    const trackPromise = this.trackChild(
+      before,
+      () => this.phaseGen.get(phase) !== myGen
+    );
 
     try {
-      for await (const message of query({ prompt: role.prompt(ctx), options })) {
+      for await (const message of query({
+        prompt: role.prompt(ctx),
+        options,
+      })) {
         this.consume(phase, message);
-        if (message.type === 'result') {
+        if (message.type === "result") {
           costUsd = message.total_cost_usd ?? 0;
-          ok = message.subtype === 'success' && !message.is_error;
+          ok = message.subtype === "success" && !message.is_error;
           summary =
-            message.subtype === 'success'
+            message.subtype === "success"
               ? message.result
-              : `La fase terminó por "${message.subtype}". ${(message.errors ?? []).join(' ')}`.trim();
+              : `La fase terminó por "${message.subtype}". ${(message.errors ?? []).join(" ")}`.trim();
           // El SDK no siempre lanza: a veces el motivo viene en el resultado.
           if (!ok) pauseSignal = this.classifyFailure(summary);
         }
@@ -858,18 +1002,23 @@ export class Run {
       if (this.stopped) throw err;
       const detalle = describeError(err);
       summary = `La fase falló: ${detalle}`;
-      this.emit({ t: 'log', level: 'error', msg: summary });
+      this.emit({ t: "log", level: "error", msg: summary });
       pauseSignal = this.classifyFailure(detalle);
     }
 
     const pid = await trackPromise;
     if (pid !== undefined) this.children.delete(pid);
     this.costUsd += costUsd;
-    const outcome: PhaseOutcome = { ok, summary, costUsd, durationMs: Date.now() - startedAt };
+    const outcome: PhaseOutcome = {
+      ok,
+      summary,
+      costUsd,
+      durationMs: Date.now() - startedAt,
+    };
     // Sin cuota no cuenta como fase hecha: se registra al reintentar y salir bien.
     if (!pauseSignal) {
       this.phases.set(phase, outcome);
-      this.emit({ t: 'phase.end', phase, ...outcome });
+      this.emit({ t: "phase.end", phase, ...outcome });
     }
     return { ...outcome, pauseSignal };
   }
@@ -885,17 +1034,19 @@ export class Run {
    * cascada: las fases siguientes fallan una tras otra en milisegundos porque
    * les falta el trabajo de la que sí murió.
    */
-  private classifyFailure(detail: string): { reason: string; resumeAt: number | null } | null {
+  private classifyFailure(
+    detail: string
+  ): { reason: string; resumeAt: number | null } | null {
     if (QUOTA_ERRORS.test(detail)) {
       return { reason: detail, resumeAt: parseResetAt(detail) };
     }
     this.fatal = detail;
     this.emit({
-      t: 'log',
-      level: 'error',
+      t: "log",
+      level: "error",
       msg: HARD_ERRORS.test(detail)
-        ? 'Se detiene la ejecución: el resto de fases fallaría igual. El trabajo hecho sigue en el workspace.'
-        : 'Se detiene la ejecución: el error no tiene forma de aviso de cuota conocido, así que no se reintenta solo. El trabajo hecho sigue en el workspace.',
+        ? "Se detiene la ejecución: el resto de fases fallaría igual. El trabajo hecho sigue en el workspace."
+        : "Se detiene la ejecución: el error no tiene forma de aviso de cuota conocido, así que no se reintenta solo. El trabajo hecho sigue en el workspace.",
     });
     return null;
   }
@@ -904,29 +1055,29 @@ export class Run {
   private consume(phase: PhaseId, message: SDKMessage): void {
     // Deltas arrive as stream events; the matching full assistant message is
     // used only for tool calls, so prose is never emitted twice.
-    if (message.type === 'stream_event') {
+    if (message.type === "stream_event") {
       const sub = message.parent_tool_use_id !== null;
       const event = message.event;
-      if (event.type === 'content_block_delta') {
+      if (event.type === "content_block_delta") {
         const delta = event.delta;
-        if (delta.type === 'text_delta' && delta.text) {
-          this.emit({ t: 'text', phase, delta: delta.text, sub });
-        } else if (delta.type === 'thinking_delta' && delta.thinking) {
-          this.emit({ t: 'thinking', phase, delta: delta.thinking, sub });
+        if (delta.type === "text_delta" && delta.text) {
+          this.emit({ t: "text", phase, delta: delta.text, sub });
+        } else if (delta.type === "thinking_delta" && delta.thinking) {
+          this.emit({ t: "thinking", phase, delta: delta.thinking, sub });
         }
       }
       return;
     }
 
-    if (message.type !== 'assistant') return;
+    if (message.type !== "assistant") return;
 
     const sub = message.parent_tool_use_id !== null;
     for (const block of message.message.content) {
-      if (block.type !== 'tool_use') continue;
+      if (block.type !== "tool_use") continue;
       const input = (block.input ?? {}) as Record<string, unknown>;
 
       this.emit({
-        t: 'tool',
+        t: "tool",
         phase,
         id: block.id,
         name: block.name,
@@ -934,24 +1085,28 @@ export class Run {
         sub,
       });
 
-      if (block.name === 'Write' || block.name === 'Edit') {
+      if (block.name === "Write" || block.name === "Edit") {
         const file = input.file_path;
-        if (typeof file === 'string') {
+        if (typeof file === "string") {
           this.emit({
-            t: 'file',
+            t: "file",
             phase,
-            path: path.relative(this.workspace, file).split(path.sep).join('/'),
-            action: block.name === 'Write' ? 'write' : 'edit',
+            path: path.relative(this.workspace, file).split(path.sep).join("/"),
+            action: block.name === "Write" ? "write" : "edit",
           });
         }
       }
 
-      if (block.name === 'Task') {
+      if (block.name === "Task") {
         this.emit({
-          t: 'consult',
+          t: "consult",
           phase,
-          agent: typeof input.subagent_type === 'string' ? input.subagent_type : 'subagente',
-          question: typeof input.description === 'string' ? input.description : '',
+          agent:
+            typeof input.subagent_type === "string"
+              ? input.subagent_type
+              : "subagente",
+          question:
+            typeof input.description === "string" ? input.description : "",
         });
       }
     }
