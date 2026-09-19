@@ -1,12 +1,12 @@
 # Agent Forge
 
-Le das una idea. Un equipo de nueve agentes de Claude la convierte en un repositorio
+Le das una idea. Un equipo de nueve agentes la convierte en un repositorio
 completo —producto, diseño, arquitectura, backend, frontend, integración, revisión y
 entrega— mientras tú lo ves trabajar en directo desde el navegador. Diseño corre en
 paralelo con arquitecto y backend, no en serie: ver _El equipo_ más abajo.
 
-Construido sobre el [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk):
-los agentes no describen código, lo escriben en disco, ejecutan comandos, corren los
+Construido sobre [OpenCode](https://opencode.ai) como motor de agentes:
+los agentes describen código, lo escriben en disco, ejecutan comandos, corren los
 tests y arreglan lo que falla.
 
 ---
@@ -18,15 +18,8 @@ npm run install:all          # instala servidor y web
 cp server/.env.example server/.env
 ```
 
-Edita `server/.env` y pon tu clave:
-
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-La clave se saca de [platform.claude.com](https://platform.claude.com/). **Si no pones
-clave y tienes Claude Code con sesión iniciada, el SDK usa esa cuenta** — lee
-_Autenticación y consumo_ antes de decidir.
+La autenticación se gestiona vía OpenCode. Asegúrate de tener las credenciales
+configuradas en `~/.local/share/opencode/auth.json` o vía variables de entorno.
 
 ```bash
 npm run dev                  # API en :5178, interfaz en :5179
@@ -40,7 +33,7 @@ Para producción local: `npm run build && npm start` sirve todo desde el puerto 
 
 ## El equipo
 
-Cada fase es una sesión independiente del Agent SDK sobre el mismo workspace. El
+Cada fase es una sesión independiente de OpenCode sobre el mismo workspace. El
 contrato entre agentes son los documentos de `docs/`: cada uno lee lo que escribió el
 anterior, y ninguno puede contradecirlo en silencio. Ya no es una cadena estrictamente
 lineal:

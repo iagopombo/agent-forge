@@ -5,27 +5,37 @@
  */
 
 export type PhaseId =
-  | 'product'
-  | 'design'
-  | 'architect'
-  | 'backend'
-  | 'frontend'
-  | 'integration'
-  | 'review'
-  | 'fix'
-  | 'package';
+  | "product"
+  | "design"
+  | "architect"
+  | "backend"
+  | "frontend"
+  | "integration"
+  | "review"
+  | "fix"
+  | "package";
 
-export type RunStatus = 'queued' | 'running' | 'paused' | 'done' | 'failed' | 'stopped';
+export type RunStatus =
+  "queued" | "running" | "paused" | "done" | "failed" | "stopped";
 
 export type Base = { seq: number; ts: number };
 
 export type ForgeEvent = Base &
   (
-    | { t: 'run.start'; runId: string; idea: string; workspace: string }
-    | { t: 'run.end'; status: RunStatus; costUsd: number; durationMs: number }
-    | { t: 'phase.start'; phase: PhaseId; label: string; round: number }
+    | { t: "run.start"; runId: string; idea: string; workspace: string }
+    /**
+     * Producto decidió el nombre del producto y la carpeta del workspace se
+     * renombró a partir de él (`Run.renameToProductName`). No es cosmético:
+     * `RunStore` lo usa para volcar el manifiesto en disco de inmediato —
+     * sin esto, retomar una ejecución que se cortó justo después del cambio
+     * de nombre (antes del siguiente phase.end/run.end) apunta a la carpeta
+     * vieja, que ya no existe.
+     */
+    | { t: "workspace"; workspace: string }
+    | { t: "run.end"; status: RunStatus; costUsd: number; durationMs: number }
+    | { t: "phase.start"; phase: PhaseId; label: string; round: number }
     | {
-        t: 'phase.end';
+        t: "phase.end";
         phase: PhaseId;
         ok: boolean;
         summary: string;
@@ -33,33 +43,54 @@ export type ForgeEvent = Base &
         durationMs: number;
       }
     /** Streamed assistant prose, delta by delta. */
-    | { t: 'text'; phase: PhaseId; delta: string; sub: boolean }
+    | { t: "text"; phase: PhaseId; delta: string; sub: boolean }
     /** Streamed reasoning, delta by delta. */
-    | { t: 'thinking'; phase: PhaseId; delta: string; sub: boolean }
-    | { t: 'tool'; phase: PhaseId; id: string; name: string; summary: string; sub: boolean }
-    | { t: 'file'; phase: PhaseId; path: string; action: 'write' | 'edit' }
+    | { t: "thinking"; phase: PhaseId; delta: string; sub: boolean }
+    | {
+        t: "tool";
+        phase: PhaseId;
+        id: string;
+        name: string;
+        summary: string;
+        sub: boolean;
+      }
+    | { t: "file"; phase: PhaseId; path: string; action: "write" | "edit" }
     /** One agent delegating to another (Task tool). */
-    | { t: 'consult'; phase: PhaseId; agent: string; question: string }
+    | { t: "consult"; phase: PhaseId; agent: string; question: string }
     /**
      * The product agent is asking a scope question, or the design agent is
      * showing a mockup screenshot and asking for feedback (`image` set, a
      * data URL). Either way it blocks the phase.
      */
-    | { t: 'ask'; phase: PhaseId; id: string; question: string; options: string[]; image?: string }
+    | {
+        t: "ask";
+        phase: PhaseId;
+        id: string;
+        question: string;
+        options: string[];
+        image?: string;
+      }
     /** The user answered an `ask`. `answer` is the chosen option or free text. */
-    | { t: 'answer'; phase: PhaseId; id: string; answer: string }
-    | { t: 'denied'; phase: PhaseId; name: string; reason: string }
-    | { t: 'review'; verdict: 'pass' | 'changes_requested'; blockers: string[]; round: number }
+    | { t: "answer"; phase: PhaseId; id: string; answer: string }
+    | { t: "denied"; phase: PhaseId; name: string; reason: string }
+    | {
+        t: "review";
+        verdict: "pass" | "changes_requested";
+        blockers: string[];
+        round: number;
+      }
     /** Se acabó la cuota a mitad de fase: la ejecución espera y reintenta sola. */
-    | { t: 'paused'; phase: PhaseId; reason: string; resumeAt: number | null }
-    | { t: 'resumed'; phase: PhaseId }
-    | { t: 'log'; level: 'info' | 'warn' | 'error'; msg: string }
+    | { t: "paused"; phase: PhaseId; reason: string; resumeAt: number | null }
+    | { t: "resumed"; phase: PhaseId }
+    | { t: "log"; level: "info" | "warn" | "error"; msg: string }
   );
 
 /** `Omit` over a union collapses to the shared keys, so distribute it explicitly. */
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
 
-export type ForgeEventInput = DistributiveOmit<ForgeEvent, 'seq' | 'ts'>;
+export type ForgeEventInput = DistributiveOmit<ForgeEvent, "seq" | "ts">;
 
 /**
  * Per-run pub/sub with replay. The buffer is capped; `firstSeq` lets a late
@@ -82,13 +113,17 @@ export class EventLog<E extends Base = ForgeEvent> {
    */
   constructor(
     private readonly capacity: number,
-    startSeq = 0,
+    startSeq = 0
   ) {
     this.nextSeq = startSeq;
   }
 
-  emit(input: DistributiveOmit<E, 'seq' | 'ts'>): E {
-    const event = { ...input, seq: this.nextSeq++, ts: Date.now() } as unknown as E;
+  emit(input: DistributiveOmit<E, "seq" | "ts">): E {
+    const event = {
+      ...input,
+      seq: this.nextSeq++,
+      ts: Date.now(),
+    } as unknown as E;
     this.events.push(event);
     if (this.events.length > this.capacity) {
       this.dropped += this.events.length - this.capacity;

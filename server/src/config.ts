@@ -1,22 +1,37 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
 /** Repo root (agent-forge/). `src` -> `server` -> repo root. */
-export const ROOT = path.resolve(here, '..', '..');
+export const ROOT = path.resolve(here, "..", "..");
+
+/**
+ * Ruta al binario de OpenCode. En Windows busca la instalación global
+ * de npm; en otros sistemas asume que está en PATH.
+ */
+function findOpenCodeBin(): string {
+  // Windows: npm global install path
+  const winBin = String.raw`C:\Users\iagop\AppData\Roaming\npm\node_modules\opencode-ai\bin\opencode.exe`;
+  if (existsSync(winBin)) return winBin;
+  // Fallback: asume que está en PATH
+  return "opencode";
+}
+
+export const OPENCODE_BIN = findOpenCodeBin();
 
 export const CONFIG = {
   port: Number(process.env.PORT ?? 5178),
 
   /** Every run gets its own sandbox directory under here. */
-  workspacesRoot: process.env.FORGE_WORKSPACES ?? path.join(ROOT, 'workspaces'),
+  workspacesRoot: process.env.FORGE_WORKSPACES ?? path.join(ROOT, "workspaces"),
 
   /** Where the append-only event log of each run is persisted. */
-  runsRoot: process.env.FORGE_RUNS ?? path.join(ROOT, '.runs'),
+  runsRoot: process.env.FORGE_RUNS ?? path.join(ROOT, ".runs"),
 
   /** Built frontend, served by the same process in production. */
-  webDist: path.join(ROOT, 'web', 'dist'),
+  webDist: path.join(ROOT, "web", "dist"),
 
   /**
    * Sin definir por defecto: cada rol trae su propio modelo en `roles.ts`
