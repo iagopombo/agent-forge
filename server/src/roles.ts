@@ -1,4 +1,4 @@
-import type { PhaseId } from './events.js';
+import type { PhaseId } from "./events.js";
 
 export type RoleContext = {
   idea: string;
@@ -7,6 +7,13 @@ export type RoleContext = {
   round: number;
   /** Final text of the previous phase, handed to the next agent verbatim. */
   previous: string;
+  /**
+   * Non-empty only for the exact phase being resumed after an interrupted
+   * run (`Run.resumeNoteFor`) — never for the phases before or after it, and
+   * never mixed into `previous`, which a resume immediately overwrites with
+   * legitimate phase summaries before this phase's turn comes up.
+   */
+  resumeNote: string;
   /**
    * Resumen de la fase de diseño, para el frontend. Corre en paralelo con
    * arquitecto/backend (no es "la fase anterior" de nadie en la cadena
@@ -22,7 +29,7 @@ export type Role = {
   label: string;
   /** Shown in the UI column header. */
   short: string;
-  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
   /**
    * Modelo por defecto de este rol. `Run.request.model` (si se pasa en la
    * ejecución) lo pisa entero — este valor es el reparto pensado para no
@@ -58,6 +65,7 @@ El directorio de trabajo actual es la raíz del repositorio del producto.
   docs/05-REVIEW.md         Informe de revisión
   docs/REVIEW.json          Veredicto legible por máquina
   docs/HANDOFF.md           Bitácora append-only entre agentes
+  docs/progress/<fase>.md   Checklist de progreso de TU fase, mientras dure
   (el código del producto vive en la raíz, junto a docs/)
 `.trim();
 
@@ -83,9 +91,42 @@ REGLAS DE TRABAJO (todas las fases)
 6. Nada de secretos en el repositorio. Todo por variable de entorno, documentado
    en .env.example con valores de ejemplo.
 7. Trabaja solo dentro del workspace. No despliegues, no publiques, no hagas push.
+8. Mantén un checklist en docs/progress/<tu-fase>.md (usa tu propio nombre de fase:
+   product, design, architect, backend, frontend, integration, review, fix o
+   package) con las tareas o archivos de tu reparto y su estado. Márcalo al
+   completar cada uno, no solo al final — es lo primero que lee un reintento de
+   TU MISMA fase si se corta a medias por un fallo técnico. Bórralo justo antes
+   de escribir tu entrada de HANDOFF.md: una fase que terminó con éxito no debe
+   dejar un checklist a medias que confunda a una ejecución futura.
 `.trim();
 
-const langRule = (language: string) => `
+/**
+ * Shown ONLY to the phase actually being resumed (see `RoleContext.resumeNote`),
+ * first thing in its system prompt — before CONTRACT, before any Skill. The
+ * goal: its first action is reading what's already there, not writing code.
+ */
+export const RESUME_NOTE = `
+RETOMAS UNA EJECUCIÓN INTERRUMPIDA
+Un intento anterior de ESTA fase se cortó a medias por un fallo técnico (no por
+un problema con tu trabajo). El workspace ya tiene lo que ese intento llegó a
+escribir. Antes de tocar nada — antes incluso de invocar ninguna Skill —
+contextualízate:
+1. Comprueba si existe docs/progress/<tu-fase>.md (tu propio nombre de fase). Si
+   existe, es el checklist que dejó el intento anterior de ESTA MISMA fase: qué
+   tareas están hechas y cuáles no. Léelo primero — te ahorra reconstruir el
+   estado leyendo todo el código desde cero.
+2. Si no existe (el intento anterior no llegó a crearlo, o nunca hubo un intento
+   previo real de esta fase), lee docs/HANDOFF.md, sobre todo la última entrada
+   de tu propia fase si existe, e inspecciona el código que ya existe en tu área
+   (docs/04-WORKPLAN.md dice cuál es): qué archivos hay, cuáles están completos,
+   cuáles a medias o rotos.
+3. Continúa desde ahí. Completa lo que falta y corrige lo que esté mal, pero no
+   reescribas ni repitas lo que ya funciona. Sigue actualizando el checklist
+   según avanzas (regla 8).
+`.trim();
+
+const langRule = (language: string) =>
+  `
 IDIOMA
 - Texto visible para el usuario final del producto y documentación: ${language}.
 - Código, nombres de variables, funciones, tablas, ramas y commits: inglés.
@@ -99,7 +140,9 @@ bajan la calidad: cambian cómo llegas ahí gastando menos.
 `.trim();
 
 const preamble = (ctx: RoleContext) =>
-  `${CONTRACT}\n\n${RULES}\n\n${langRule(ctx.language)}\n\n${EFFICIENCY}`;
+  [ctx.resumeNote, CONTRACT, RULES, langRule(ctx.language), EFFICIENCY]
+    .filter(Boolean)
+    .join("\n\n");
 
 /**
  * The architect is also exposed to the engineering roles as a subagent, so a
@@ -124,15 +167,16 @@ No edites archivos: solo aconsejas. El ingeniero aplica el cambio.
 
 export const ROLES: Record<PhaseId, Role> = {
   product: {
-    id: 'product',
-    label: 'Estrategia de producto',
-    short: 'Producto',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "product",
+    label: "Estrategia de producto",
+    short: "Producto",
+    effort: "high",
+    model: "claude-sonnet-5",
     maxTurns: 40,
     canConsult: false,
     canAsk: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un jefe de producto con experiencia lanzando SaaS rentables. Conviertes una
 idea vaga en un alcance de MVP que un equipo pequeño puede construir y vender.
 
@@ -157,7 +201,8 @@ te llega su respuesta. Trátala como decisión firme y refléjala en el brief. N
 uses para detalles menores que puedas asumir y anotar como supuesto: pregunta
 solo lo que cambiaría lo que se construye.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Idea del usuario:
 """
 ${ctx.idea}
@@ -208,18 +253,19 @@ Termina tu turno con un resumen de 5 líneas del producto para el arquitecto.
   },
 
   design: {
-    id: 'design',
-    label: 'Diseño',
-    short: 'Diseño',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "design",
+    label: "Diseño",
+    short: "Diseño",
+    effort: "high",
+    model: "claude-sonnet-5",
     // Estimación inicial, sin evidencia real todavía (fase nueva): varias
     // pantallas, cada una con varias rondas de mostrar_diseno. Igual que
     // backend/frontend/entrega, se sube si una ejecución real la agota.
     maxTurns: 100,
     canConsult: false,
     canDesign: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un diseñador de producto con buen ojo visual. Traduces el brief en un
 sistema de diseño y en mockups reales — HTML autocontenido, no descripciones —
 que el usuario aprueba pantalla a pantalla antes de que el frontend construya
@@ -267,7 +313,8 @@ espaciado, formas, pantallas aprobadas, y las restricciones explícitas para
 que el frontend no las reintroduzca). El frontend no construye nada que no
 esté aquí.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase de producto:
 """
 ${ctx.previous}
@@ -295,14 +342,15 @@ qué pantallas hay, dónde están y qué sistema de diseño siguen.
   },
 
   architect: {
-    id: 'architect',
-    label: 'Arquitectura',
-    short: 'Arquitecto',
-    effort: 'max',
-    model: 'claude-opus-4-8',
+    id: "architect",
+    label: "Arquitectura",
+    short: "Arquitecto",
+    effort: "max",
+    model: "claude-opus-4-8",
     maxTurns: 60,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un arquitecto de software senior. Eliges tecnología aburrida y probada, no
 la de moda. Tus contratos son tan precisos que dos ingenieros que no hablan entre
 ellos pueden implementar los dos lados y encajar a la primera.
@@ -326,7 +374,8 @@ endpoint necesita forma exacta del request y del response, con un ejemplo JSON
 real, los códigos de error y si requiere autenticación. Si es ambiguo, backend y
 frontend construirán cosas incompatibles y la culpa será tuya.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -379,18 +428,19 @@ lo que backend y frontend deben tener en cuenta.
   },
 
   backend: {
-    id: 'backend',
-    label: 'Ingeniería de backend',
-    short: 'Backend',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "backend",
+    label: "Ingeniería de backend",
+    short: "Backend",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     // Tope real observado: una red social de complejidad media (feed, búsqueda,
     // estadísticas, auth, ~30 endpoints) agotó los 120 turnos previos a mitad de
     // camino (64 archivos escritos, tests y storage sin terminar). Subido con
     // margen en vez de reintentar cada vez que el backend crece.
     maxTurns: 170,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de backend senior. Escribes servicios tipados, validados en el
 borde, con errores explícitos y tests que corren de verdad.
 
@@ -416,7 +466,8 @@ CRITERIO DE TERMINADO
 El typecheck pasa, el build pasa, los tests pasan y el servidor arranca. Lo has
 ejecutado tú y has visto la salida. Si algo falla, lo arreglas antes de terminar.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -442,17 +493,18 @@ hayas tenido respecto al contrato.
   },
 
   frontend: {
-    id: 'frontend',
-    label: 'Ingeniería de frontend',
-    short: 'Frontend',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "frontend",
+    label: "Ingeniería de frontend",
+    short: "Frontend",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     // Mismo hallazgo que backend (ver ese comentario): una app de tamaño medio
     // agota los 120 turnos previos a mitad de camino (83 archivos escritos,
     // pantallas de estadísticas sin terminar).
     maxTurns: 170,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de frontend senior con muy buen ojo de diseño. Tus interfaces
 parecen producto acabado: jerarquía visual clara, espaciado consistente, estados
 de carga, vacío y error resueltos, accesibles y responsive.
@@ -490,7 +542,8 @@ CRITERIO DE TERMINADO
 El typecheck pasa, el build de producción pasa y no hay errores en consola. Lo
 has ejecutado tú.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase de backend:
 """
 ${ctx.previous}
@@ -525,14 +578,15 @@ el integrador.
   },
 
   integration: {
-    id: 'integration',
-    label: 'Integración y pruebas',
-    short: 'Integración',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "integration",
+    label: "Integración y pruebas",
+    short: "Integración",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     maxTurns: 100,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero de integración. Tu trabajo es que las dos mitades arranquen
 juntas desde cero y funcionen. Eres el primero que ejecuta el producto entero.
 
@@ -558,7 +612,8 @@ Desde un checkout limpio: instalar, migrar, sembrar, arrancar y usar los flujos
 principales funciona. Typecheck, build y toda la suite de tests en verde. Lo has
 ejecutado tú y pegas la salida real en tu resumen.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
@@ -578,14 +633,15 @@ y la lista de desajustes que has corregido.
   },
 
   review: {
-    id: 'review',
-    label: 'Revisión técnica',
-    short: 'Revisión',
-    effort: 'max',
-    model: 'claude-opus-4-8',
+    id: "review",
+    label: "Revisión técnica",
+    short: "Revisión",
+    effort: "max",
+    model: "claude-opus-4-8",
     maxTurns: 60,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un revisor técnico exigente. Evalúas si este producto se puede vender a un
 cliente de pago mañana. No escribes código: dictaminas.
 
@@ -612,7 +668,8 @@ No te fíes de lo que dicen los documentos ni los resúmenes: ejecuta el código
 Instala, arranca, prueba los flujos, lee los endpoints sensibles buscando la
 comprobación de permisos, y busca secretos en el repositorio.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Ronda de revisión: ${ctx.round}.
 
 Resumen de la fase anterior:
@@ -649,14 +706,15 @@ Termina con el veredicto y la lista de bloqueantes en texto plano.
   },
 
   fix: {
-    id: 'fix',
-    label: 'Corrección de bloqueantes',
-    short: 'Correcciones',
-    effort: 'xhigh',
-    model: 'claude-sonnet-5',
+    id: "fix",
+    label: "Corrección de bloqueantes",
+    short: "Correcciones",
+    effort: "xhigh",
+    model: "claude-sonnet-5",
     maxTurns: 100,
     canConsult: true,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres un ingeniero senior resolviendo los bloqueantes de una revisión.
 
 ${preamble(ctx)}
@@ -674,11 +732,12 @@ CRITERIO DE TERMINADO
 Todos los bloqueantes cerrados con evidencia, y la suite completa (typecheck,
 build, tests) sigue en verde. Nada que funcionaba antes se ha roto.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Ronda de correcciones: ${ctx.round}.
 
 Bloqueantes a resolver:
-${ctx.blockers.map((b, i) => `${i + 1}. ${b}`).join('\n') || '(lee docs/REVIEW.json)'}
+${ctx.blockers.map((b, i) => `${i + 1}. ${b}`).join("\n") || "(lee docs/REVIEW.json)"}
 
 Lee docs/REVIEW.json y docs/05-REVIEW.md para el detalle completo. Resuelve todos
 los bloqueantes, añade un test por cada uno que sea testeable, y vuelve a ejecutar
@@ -692,11 +751,11 @@ verificado, pegando la salida real de los comandos.
   },
 
   package: {
-    id: 'package',
-    label: 'Empaquetado y entrega',
-    short: 'Entrega',
-    effort: 'high',
-    model: 'claude-sonnet-5',
+    id: "package",
+    label: "Empaquetado y entrega",
+    short: "Entrega",
+    effort: "high",
+    model: "claude-sonnet-5",
     // Tope real observado: en una red social de complejidad media (93 archivos de
     // frontend, ~30 endpoints de backend) los 60 turnos previos se agotaron a
     // mitad de la revisión de limpieza (gitignore, .env.test, logs sueltos),
@@ -704,7 +763,8 @@ verificado, pegando la salida real de los comandos.
     // margen que backend/frontend en vez de reintentar cada vez que crece el repo.
     maxTurns: 100,
     canConsult: false,
-    system: (ctx) => `
+    system: (ctx) =>
+      `
 Eres responsable de entrega. Conviertes un repositorio que funciona en un producto
 que alguien puede comprar, desplegar y mantener.
 
@@ -718,7 +778,8 @@ Escribes documentación que se ha comprobado: cada comando del README lo has
 ejecutado tú en este workspace y funciona. Un README con un comando que falla es
 peor que no tener README.
 `.trim(),
-    prompt: (ctx) => `
+    prompt: (ctx) =>
+      `
 Resumen de la fase anterior:
 """
 ${ctx.previous}
